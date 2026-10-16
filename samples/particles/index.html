@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <title>Balloc - Particle Physics (ImageData Ultra Fast)</title>
+    <style>
+        body { margin: 0; background: #111111; overflow: hidden; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <script src="../../src/pt/balloc.js"></script>
+    <script>
+
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+
+        let w = canvas.width = window.innerWidth;
+        let h = canvas.height = window.innerHeight;
+
+        const COUNT = 10000;
+        const INITIAL_BYTES = COUNT * 4 * 4;
+
+        // Inicializa o Balloc usando o tipo Ponto Flutuante de 32 bits
+        const memory = new Balloc(INITIAL_BYTES, "32f");
+
+        const posX = memory.alloc(COUNT);
+        const posY = memory.alloc(COUNT);
+        const velX = memory.alloc(COUNT);
+        const velY = memory.alloc(COUNT);
+
+        memory.fill(posX, 0, 0, COUNT);
+        memory.fill(posY, 0, 0, COUNT);
+        memory.fill(velX, 0, 0, COUNT);
+        memory.fill(velY, 0, 0, COUNT);
+
+        // Preenchimento inicial de posições e velocidades
+        for (let i = 0; i < COUNT; i++) {
+            memory.set(posX, i, Math.random() * w);
+            memory.set(posY, i, Math.random() * h);
+            memory.set(velX, i, (Math.random() * 4 - 2));
+            memory.set(velY, i, (Math.random() * 4 - 2));
+        }
+
+        // Prepara a memória da imagem na Canvas2D
+        let imgData = ctx.createImageData(w, h);
+        let pixels = new Uint32Array(imgData.data.buffer);
+
+        // Atualiza a memória de tela ao redimensionar a janela
+        window.addEventListener("resize", () => {
+            w = canvas.width = window.innerWidth;
+            h = canvas.height = window.innerHeight;
+            imgData = ctx.createImageData(w, h);
+            pixels = new Uint32Array(imgData.data.buffer);
+        });
+
+        function update() {
+            for (let i = 0; i < COUNT; i++) {
+                let x = memory.get(posX, i);
+                let y = memory.get(posY, i);
+                let vx = memory.get(velX, i);
+                let vy = memory.get(velY, i);
+
+                x += vx;
+                y += vy;
+
+                // Colisão com as bordas do canvas
+                if (x <= 0 || x >= w) { 
+                    vx = -vx; 
+                    memory.set(velX, i, vx); 
+                }
+                if (y <= 0 || y >= h) { 
+                    vy = -vy; 
+                    memory.set(velY, i, vy); 
+                }
+
+                memory.set(posX, i, x);
+                memory.set(posY, i, y);
+            }
+        }
+
+        const COLOR = 0xFFFFFF00; 
+        const COLOR_BG = 0xFF111111;
+
+        function renderFast() {
+            // Limpa todo o buffer de tela de uma só vez (sem rastros e sem repintura parcial)
+            pixels.fill(COLOR_BG);
+
+            for (let i = 0; i < COUNT; i++) {
+                // Operação de bitwise OR (| 0) trunca de forma rápida o Float para Integer
+                const x = memory.get(posX, i) | 0;
+                const y = memory.get(posY, i) | 0;
+
+                // Garante que o índice fique estritamente dentro dos limites do buffer de pixels
+                if (x >= 0 && x < w && y >= 0 && y < h) {
+                    const index = y * w + x;
+                    pixels[index] = COLOR;
+                }
+            }
+
+            ctx.putImageData(imgData, 0, 0);
+
+            update();
+            requestAnimationFrame(renderFast);
+        }
+
+        renderFast();
+    </script>
+</body>
+</html>

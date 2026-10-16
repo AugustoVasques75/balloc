@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "./types",
+    "rootDir": "./src",
+    "allowJs": true,
+    "checkJs": false,
+    "skipLibCheck": true,
+    "stripInternal": false
+  },
+  "include": [
+    "src/**/*.mjs"
+  ]
+}

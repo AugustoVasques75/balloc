@@ -1,0 +1,107 @@
+{
+  "name": "balloc",
+  "version": "1.0.0",
+  "description": "Bump allocation memory allocator",
+  "main": "./src/en/balloc.mjs",
+  "unpkg": "./src/en/balloc.js",
+  "jsdelivr": "./src/en/balloc.js",
+  "types": "./types/en/balloc.d.mts",
+  "type": "module",
+  "files": [
+    "src/",
+    "docs/",
+    "types/",
+    "LICENSE",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./types/en/balloc.d.mts",
+      "import": "./src/en/balloc.mjs",
+      "require": "./src/en/balloc.cjs",
+      "default": "./src/en/balloc.js"
+    },
+    "./ar": {
+      "types": "./types/ar/balloc.d.mts",
+      "import": "./src/ar/balloc.mjs",
+      "require": "./src/ar/balloc.cjs",
+      "default": "./src/ar/balloc.js"
+    },
+    "./en": {
+      "types": "./types/en/balloc.d.mts",
+      "import": "./src/en/balloc.mjs",
+      "require": "./src/en/balloc.cjs",
+      "default": "./src/en/balloc.js"
+    },
+    "./es": {
+      "types": "./types/es/balloc.d.mts",
+      "import": "./src/es/balloc.mjs",
+      "require": "./src/es/balloc.cjs",
+      "default": "./src/es/balloc.js"
+    },
+    "./jp": {
+      "types": "./types/jp/balloc.d.mts",
+      "import": "./src/jp/balloc.mjs",
+      "require": "./src/jp/balloc.cjs",
+      "default": "./src/jp/balloc.js"
+    },
+    "./pt": {
+      "types": "./types/pt/balloc.d.mts",
+      "import": "./src/pt/balloc.mjs",
+      "require": "./src/pt/balloc.cjs",
+      "default": "./src/pt/balloc.js"
+    },
+    "./zh": {
+      "types": "./types/zh/balloc.d.mts",
+      "import": "./src/zh/balloc.mjs",
+      "require": "./src/zh/balloc.cjs",
+      "default": "./src/zh/balloc.js"
+    }
+  },
+  "scripts": {
+    "build:bundle": "tsup",
+    "build:types": "tsc",
+    "build": "npm run build:bundle && npm run build:types",
+    "clear:images": "docker rmi $(docker images \"balloc-test\" -q)",
+    "pack:local": "npm pack --pack-destination ./dist",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:cjs": "jest test/test.cjs"
+  },
+  "keywords": [
+    "memory",
+    "CBOR",
+    "allocator",
+    "bump-allocation",
+    "bump-allocator",
+    "low-level",
+    "typed-arrays",
+    "binary",
+    "performance",
+    "serialization",
+    "interoperability",
+    "cross-platform",
+    "endianness",
+    "malloc",
+    "data-structures"
+  ],
+  "author": "Augusto Vasques",
+  "license": "MIT",
+  "devDependencies": {
+    "jest": "^30.5.2",
+    "tsup": "^8.5.1",
+    "typescript": "^7.0.2"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1",
+    "sprintf-js": "^1.1.3",
+    "js-yaml": "^4.1.0",
+    "argparse": "^2.0.1",
+    "glob": "^13.0.6"
+  },
+  "dependencies": {
+    "cbor-x": "^1.6.6"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

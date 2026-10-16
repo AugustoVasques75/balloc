@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Balloc Star Field</title>
+
+    <style>
+        html,
+        body {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="screen"></canvas>
+
+    <script src="../../src/pt/balloc.js"></script>
+    <script>
+
+        const canvas = document.getElementById("screen");
+        const ctx = canvas.getContext("2d");
+
+        const STRIDE = 5;
+        const STAR_COUNT = 256;
+
+        const memory = new Balloc(STAR_COUNT * STRIDE * 4, "32u");
+        const stars = memory.alloc(STAR_COUNT * STRIDE);
+
+        memory.fill(stars, 0, 0, STAR_COUNT * STRIDE);
+
+        let width = 0;
+        let height = 0;
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+
+            for (let i = 0; i < STAR_COUNT; i++) {
+                const p = i * STRIDE;
+
+                memory.set(stars, p, Math.random() * width);
+                memory.set(stars, p + 1, Math.random() * height);
+                memory.set(stars, p + 2, 1 + Math.random() * 5);
+                memory.set(stars, p + 3, 80 + Math.random() * 175);
+            }
+        }
+
+        function resetStar(i) {
+            const p = i * STRIDE;
+
+            memory.set(stars, p, Math.random() * width);
+            memory.set(stars, p + 1, 0);
+            memory.set(stars, p + 2, 1 + Math.random() * 5);
+            memory.set(stars, p + 3, 80 + Math.random() * 175);
+        }
+
+        function update() {
+            for (let i = 0; i < STAR_COUNT; i++) {
+                const p = i * STRIDE;
+
+                let y = memory.get(stars, p + 1);
+                const speed = memory.get(stars, p + 2);
+
+                y += speed;
+
+                if (y >= height)
+                    resetStar(i);
+                else
+                    memory.set(stars, p + 1, y);
+            }
+        }
+
+        function render() {
+            ctx.fillStyle = "#000";
+            ctx.fillRect(0, 0, width, height);
+
+            for (let i = 0; i < STAR_COUNT; i++) {
+                const p = i * STRIDE;
+
+                const x = memory.get(stars, p);
+                const y = memory.get(stars, p + 1);
+                const speed = memory.get(stars, p + 2);
+                const brightness = memory.get(stars, p + 3);
+
+                
+
+                if (speed >= 4) {
+                    const gradient = ctx.createLinearGradient(x, y - speed * 2, x, y);
+                    gradient.addColorStop(0, `rgba(0,0,0,0)`);
+                    gradient.addColorStop(1, `rgb(${brightness},${brightness},${brightness})`);
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(x, y - speed * 2, 1, speed * 2);
+                    ctx.fillStyle = `rgb(${brightness},${brightness},${brightness})`;
+                    ctx.fillRect(x, y, 2, 2);
+                } else {
+                    ctx.fillStyle = `rgb(${brightness},${brightness},${brightness})`;
+                    ctx.fillRect(x, y, 1, 1);
+                }
+            }
+        }
+
+        function frame() {
+            update();
+            render();
+            requestAnimationFrame(frame);
+        }
+
+        window.addEventListener("resize", resize);
+
+        resize();
+        frame();
+    </script>
+</body>
+
+</html>

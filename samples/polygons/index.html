@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <title>Balloc - Rigid Body Physics (Verlet + SAT + Angular)</title>
+    <style>
+        body { margin: 0; background: #111; overflow: hidden; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script src="../../src/pt/balloc.js"></script>
+    <script>
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+
+        let w = canvas.width = window.innerWidth;
+        let h = canvas.height = window.innerHeight;
+
+        window.addEventListener("resize", () => {
+            w = canvas.width = window.innerWidth;
+            h = canvas.height = window.innerHeight;
+        });
+
+        const MAX_BODIES = 41;
+
+        const INITIAL_BYTES = MAX_BODIES * 10 * 4;
+        const memory = new Balloc(INITIAL_BYTES, "32f");
+
+        const posX = memory.alloc(MAX_BODIES);
+        const posY = memory.alloc(MAX_BODIES);
+        const oldX = memory.alloc(MAX_BODIES);
+        const oldY = memory.alloc(MAX_BODIES);
+        const angle = memory.alloc(MAX_BODIES);
+        const oldAngle = memory.alloc(MAX_BODIES);
+        const invMass = memory.alloc(MAX_BODIES);
+        const invInertia = memory.alloc(MAX_BODIES);
+        const sizeX = memory.alloc(MAX_BODIES);
+        const sizeY = memory.alloc(MAX_BODIES);
+
+        memory.fill(posX, 0, 0, MAX_BODIES);
+        memory.fill(posY, 0, 0, MAX_BODIES);
+        memory.fill(oldX, 0, 0, MAX_BODIES);
+        memory.fill(oldY, 0, 0, MAX_BODIES);
+        memory.fill(angle, 0, 0, MAX_BODIES);
+        memory.fill(oldAngle, 0, 0, MAX_BODIES);
+        memory.fill(invMass, 0, 0, MAX_BODIES);
+        memory.fill(invInertia, 0, 0, MAX_BODIES);
+        memory.fill(sizeX, 0, 0, MAX_BODIES);
+        memory.fill(sizeY, 0, 0, MAX_BODIES);
+
+        let bodyCount = 0;
+
+        function addBox(x, y, sx, sy, m = 1.0, initialAngle = 0) {
+            if (bodyCount >= MAX_BODIES) return;
+
+            const id = bodyCount++;
+
+            memory.set(posX, id, x);
+            memory.set(posY, id, y);
+
+            const vx = (Math.random() - 0.5) * 0.5;
+            const vy = (Math.random() - 0.5) * 0.25;
+
+            memory.set(oldX, id, x - vx);
+            memory.set(oldY, id, y - vy);
+
+            memory.set(angle, id, initialAngle);
+            memory.set(oldAngle, id, initialAngle);
+
+            memory.set(sizeX, id, sx);
+            memory.set(sizeY, id, sy);
+
+            if (m > 0) {
+                const im = 1 / m;
+                const inertia = (m * (sx * sx + sy * sy)) / 12;
+
+                memory.set(invMass, id, im);
+                memory.set(invInertia, id, 1 / inertia);
+            } else {
+                memory.set(invMass, id, 0);
+                memory.set(invInertia, id, 0);
+            }
+        }
+
+        function getVertices(id) {
+            const x = memory.get(posX, id);
+            const y = memory.get(posY, id);
+            const a = memory.get(angle, id);
+
+            const hx = memory.get(sizeX, id) * 0.5;
+            const hy = memory.get(sizeY, id) * 0.5;
+
+            const cos = Math.cos(a);
+            const sin = Math.sin(a);
+
+            return [
+                { x: x + (-hx * cos - -hy * sin), y: y + (-hx * sin + -hy * cos) },
+                { x: x + (hx * cos - -hy * sin),  y: y + (hx * sin + -hy * cos) },
+                { x: x + (hx * cos - hy * sin),   y: y + (hx * sin + hy * cos) },
+                { x: x + (-hx * cos - hy * sin),  y: y + (-hx * sin + hy * cos) }
+            ];
+        }
+
+        function getAxes(verts) {
+            const axes = [];
+            for (let i = 0; i < verts.length; i++) {
+                const a = verts[i];
+                const b = verts[(i + 1) % verts.length];
+
+                const ex = b.x - a.x;
+                const ey = b.y - a.y;
+
+                const nx = -ey;
+                const ny = ex;
+                const length = Math.hypot(nx, ny);
+
+                if (length > 0) {
+                    axes.push({ x: nx / length, y: ny / length });
+                }
+            }
+            return axes;
+        }
+
+        function project(verts, axis) {
+            let min = Infinity;
+            let max = -Infinity;
+
+            for (const p of verts) {
+                const dot = p.x * axis.x + p.y * axis.y;
+                if (dot < min) min = dot;
+                if (dot > max) max = dot;
+            }
+
+            return { min, max };
+        }
+
+        function findContactPoint(vertsA, vertsB) {
+            let contact = { x: 0, y: 0 };
+            let count = 0;
+
+            for (const p of vertsA) {
+                if (isPointInsidePoly(p, vertsB)) {
+                    contact.x += p.x;
+                    contact.y += p.y;
+                    count++;
+                }
+            }
+            for (const p of vertsB) {
+                if (isPointInsidePoly(p, vertsA)) {
+                    contact.x += p.x;
+                    contact.y += p.y;
+                    count++;
+                }
+            }
+
+            if (count > 0) {
+                return { x: contact.x / count, y: contact.y / count };
+            }
+
+            let cxA = 0, cyA = 0, cxB = 0, cyB = 0;
+            for (let i = 0; i < 4; i++) {
+                cxA += vertsA[i].x; cyA += vertsA[i].y;
+                cxB += vertsB[i].x; cyB += vertsB[i].y;
+            }
+            return { x: (cxA + cxB) / 8, y: (cyA + cyB) / 8 };
+        }
+
+        function isPointInsidePoly(p, verts) {
+            let inside = false;
+            for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
+                const xi = verts[i].x, yi = verts[i].y;
+                const xj = verts[j].x, yj = verts[j].y;
+                const intersect = ((yi > p.y) !== (yj > p.y)) &&
+                    (p.x < (xj - xi) * (p.y - yi) / (yj - yi) + xi);
+                if (intersect) inside = !inside;
+            }
+            return inside;
+        }
+
+        function checkSAT(vertsA, vertsB, ax, ay, bx, by) {
+            let minOverlap = Infinity;
+            let smallestAxis = null;
+
+            const axes = [...getAxes(vertsA), ...getAxes(vertsB)];
+
+            for (const axis of axes) {
+                const projA = project(vertsA, axis);
+                const projB = project(vertsB, axis);
+
+                if (projA.max <= projB.min || projB.max <= projA.min) {
+                    return null;
+                }
+
+                const overlap = Math.min(projA.max, projB.max) - Math.max(projA.min, projB.min);
+
+                if (overlap < minOverlap) {
+                    minOverlap = overlap;
+                    smallestAxis = axis;
+                }
+            }
+
+            if (!smallestAxis) return null;
+
+            const centerX = bx - ax;
+            const centerY = by - ay;
+
+            if (centerX * smallestAxis.x + centerY * smallestAxis.y < 0) {
+                smallestAxis = { x: -smallestAxis.x, y: -smallestAxis.y };
+            }
+
+            const contactPoint = findContactPoint(vertsA, vertsB);
+
+            return {
+                axis: smallestAxis,
+                depth: minOverlap,
+                contact: contactPoint
+            };
+        }
+
+        function getVelocity(id) {
+            return {
+                x: memory.get(posX, id) - memory.get(oldX, id),
+                y: memory.get(posY, id) - memory.get(oldY, id)
+            };
+        }
+
+        function setVelocity(id, vx, vy) {
+            const x = memory.get(posX, id);
+            const y = memory.get(posY, id);
+
+            memory.set(oldX, id, x - vx);
+            memory.set(oldY, id, y - vy);
+        }
+
+        function getAngularVelocity(id) {
+            return memory.get(angle, id) - memory.get(oldAngle, id);
+        }
+
+        function setAngularVelocity(id, va) {
+            const a = memory.get(angle, id);
+            memory.set(oldAngle, id, a - va);
+        }
+
+        function resolveCollision(i, j, collision) {
+            const imA = memory.get(invMass, i);
+            const imB = memory.get(invMass, j);
+            const iInertiaA = memory.get(invInertia, i);
+            const iInertiaB = memory.get(invInertia, j);
+
+            const totalInvMass = imA + imB;
+            if (totalInvMass === 0 && iInertiaA === 0 && iInertiaB === 0) return;
+
+            const { axis, depth, contact } = collision;
+
+            // 1. Correção Posicional com Mantenimento de Velocidade (Mantém v = pos - oldPos constante)
+            const slop = 0.05;
+            const correctionDepth = Math.max(depth - slop, 0);
+
+            if (correctionDepth > 0) {
+                const correctionX = axis.x * correctionDepth;
+                const correctionY = axis.y * correctionDepth;
+
+                if (imA > 0) {
+                    const ratio = imA / totalInvMass;
+                    memory.set(posX, i, memory.get(posX, i) - correctionX * ratio);
+                    memory.set(posY, i, memory.get(posY, i) - correctionY * ratio);
+                    memory.set(oldX, i, memory.get(oldX, i) - correctionX * ratio);
+                    memory.set(oldY, i, memory.get(oldY, i) - correctionY * ratio);
+                }
+
+                if (imB > 0) {
+                    const ratio = imB / totalInvMass;
+                    memory.set(posX, j, memory.get(posX, j) + correctionX * ratio);
+                    memory.set(posY, j, memory.get(posY, j) + correctionY * ratio);
+                    memory.set(oldX, j, memory.get(oldX, j) + correctionX * ratio);
+                    memory.set(oldY, j, memory.get(oldY, j) + correctionY * ratio);
+                }
+            }
+
+            const posAx = memory.get(posX, i), posAy = memory.get(posY, i);
+            const posBx = memory.get(posX, j), posBy = memory.get(posY, j);
+
+            const rAx = contact.x - posAx;
+            const rAy = contact.y - posAy;
+            const rBx = contact.x - posBx;
+            const rBy = contact.y - posBy;
+
+            const vA = getVelocity(i);
+            const vB = getVelocity(j);
+            const wA = getAngularVelocity(i);
+            const wB = getAngularVelocity(j);
+
+            const vpAx = vA.x - wA * rAy;
+            const vpAy = vA.y + wA * rAx;
+            const vpBx = vB.x - wB * rBy;
+            const vpBy = vB.y + wB * rBx;
+
+            const relativeVX = vpBx - vpAx;
+            const relativeVY = vpBy - vpAy;
+
+            const relativeNormalVelocity = relativeVX * axis.x + relativeVY * axis.y;
+            if (relativeNormalVelocity >= 0) return;
+
+            const rACrossN = rAx * axis.y - rAy * axis.x;
+            const rBCrossN = rBx * axis.y - rBy * axis.x;
+
+            const effectiveMass = totalInvMass + 
+                (rACrossN * rACrossN) * iInertiaA + 
+                (rBCrossN * rBCrossN) * iInertiaB;
+
+            // 2. Zerar restituição em micro-impactos para evitar quique infinito
+            let restitution = 0.15;
+            if (Math.abs(relativeNormalVelocity) < 2.0) {
+                restitution = 0.0;
+            }
+
+            const impulse = -(1 + restitution) * relativeNormalVelocity / effectiveMass;
+
+            const impulseX = axis.x * impulse;
+            const impulseY = axis.y * impulse;
+
+            if (imA > 0) {
+                setVelocity(i, vA.x - impulseX * imA, vA.y - impulseY * imA);
+                setAngularVelocity(i, wA - (rAx * impulseY - rAy * impulseX) * iInertiaA);
+            }
+
+            if (imB > 0) {
+                setVelocity(j, vB.x + impulseX * imB, vB.y + impulseY * imB);
+                setAngularVelocity(j, wB + (rBx * impulseY - rBy * impulseX) * iInertiaB);
+            }
+        }
+
+        function resolveCollisions() {
+            const iterations = 4;
+
+            for (let iteration = 0; iteration < iterations; iteration++) {
+                for (let i = 0; i < bodyCount; i++) {
+                    for (let j = i + 1; j < bodyCount; j++) {
+                        const imA = memory.get(invMass, i);
+                        const imB = memory.get(invMass, j);
+
+                        if (imA === 0 && imB === 0) continue;
+
+                        const vertsA = getVertices(i);
+                        const vertsB = getVertices(j);
+
+                        const ax = memory.get(posX, i);
+                        const ay = memory.get(posY, i);
+                        const bx = memory.get(posX, j);
+                        const by = memory.get(posY, j);
+
+                        const collision = checkSAT(vertsA, vertsB, ax, ay, bx, by);
+
+                        if (collision) {
+                            resolveCollision(i, j, collision);
+                        }
+                    }
+                }
+            }
+        }
+
+        function resolveWorldBounds(id) {
+            const im = memory.get(invMass, id);
+            if (im === 0) return;
+
+            const verts = getVertices(id);
+
+            let minX = Infinity, maxX = -Infinity;
+            let minY = Infinity, maxY = -Infinity;
+
+            for (const vertex of verts) {
+                if (vertex.x < minX) minX = vertex.x;
+                if (vertex.x > maxX) maxX = vertex.x;
+                if (vertex.y < minY) minY = vertex.y;
+                if (vertex.y > maxY) maxY = vertex.y;
+            }
+
+            const restitution = 0.1;
+            let vx = memory.get(posX, id) - memory.get(oldX, id);
+            let vy = memory.get(posY, id) - memory.get(oldY, id);
+
+            let x = memory.get(posX, id);
+            let y = memory.get(posY, id);
+
+            if (minX < 20) {
+                x += 20 - minX;
+                if (vx < 0) vx = -vx * restitution;
+            }
+
+            if (maxX > w - 20) {
+                x -= maxX - (w - 20);
+                if (vx > 0) vx = -vx * restitution;
+            }
+
+            if (minY < 20) {
+                y += 20 - minY;
+                if (vy < 0) vy = -vy * restitution;
+            }
+
+            if (maxY > h - 20) {
+                y -= maxY - (h - 20);
+                if (vy > 0) vy = -vy * restitution;
+            }
+
+            memory.set(posX, id, x);
+            memory.set(posY, id, y);
+
+            setVelocity(id, vx, vy);
+        }
+
+        function updatePhysics(dt) {
+            const gravity = 1100;
+            const dampingPer60Frames = 0.98;
+            const damping = Math.pow(dampingPer60Frames, dt * 60);
+
+            for (let i = 0; i < bodyCount; i++) {
+                const im = memory.get(invMass, i);
+                if (im === 0) continue;
+
+                let x = memory.get(posX, i);
+                let y = memory.get(posY, i);
+                let ox = memory.get(oldX, i);
+                let oy = memory.get(oldY, i);
+
+                let a = memory.get(angle, i);
+                let oa = memory.get(oldAngle, i);
+
+                let vx = (x - ox) / dt;
+                let vy = (y - oy) / dt;
+                let va = (a - oa) / dt;
+
+                vx *= damping;
+                vy *= damping;
+                va *= damping;
+
+                // 3. Threshold de repouso (zerar micro-movimentos residuais)
+                if (Math.abs(vx) < 1.0) vx = 0;
+                if (Math.abs(vy) < 1.0) vy = 0;
+                if (Math.abs(va) < 0.01) va = 0;
+
+                vy += gravity * dt;
+
+                memory.set(oldX, i, x);
+                memory.set(oldY, i, y);
+                memory.set(oldAngle, i, a);
+
+                x += vx * dt;
+                y += vy * dt;
+                a += va * dt;
+
+                memory.set(posX, i, x);
+                memory.set(posY, i, y);
+                memory.set(angle, i, a);
+            }
+
+            resolveWorldBoundsAll();
+            resolveCollisions();
+        }
+
+        function resolveWorldBoundsAll() {
+            for (let i = 0; i < bodyCount; i++) {
+                resolveWorldBounds(i);
+            }
+        }
+
+        for (let i = 0; i < 40; i++) {
+            addBox(
+                200 + (i % 8) * 60,
+                100 + Math.floor(i / 8) * 60,
+                30 + Math.random() * 20,
+                30 + Math.random() * 20,
+                1.0,
+                Math.random() * Math.PI
+            );
+        }
+
+        addBox(
+            w / 2,
+            h / 2 + 100,
+            400,
+            30,
+            0,
+            0.2
+        );
+
+        let lastTime = performance.now();
+
+        function render(time) {
+            const dt = Math.min((time - lastTime) / 1000, 1 / 30);
+            lastTime = time;
+
+            ctx.fillStyle = "#111";
+            ctx.fillRect(0, 0, w, h);
+
+            ctx.strokeStyle = "#333";
+            ctx.strokeRect(20, 20, w - 40, h - 40);
+
+            for (let i = 0; i < bodyCount; i++) {
+                const verts = getVertices(i);
+                const isStatic = memory.get(invMass, i) === 0;
+
+                ctx.beginPath();
+                ctx.moveTo(verts[0].x, verts[0].y);
+
+                for (let j = 1; j < verts.length; j++) {
+                    ctx.lineTo(verts[j].x, verts[j].y);
+                }
+
+                ctx.closePath();
+
+                ctx.fillStyle = isStatic ? "#ff4444" : "#00ffcc";
+                ctx.globalAlpha = 0.6;
+                ctx.fill();
+
+                ctx.globalAlpha = 1;
+                ctx.strokeStyle = "#fff";
+                ctx.stroke();
+            }
+
+            updatePhysics(dt);
+
+            requestAnimationFrame(render);
+        }
+
+        requestAnimationFrame(render);
+    </script>
+</body>
+</html>

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <title>Balloc - Particle Physics</title>
+    <style>
+        body { margin: 0; background: #111; overflow: hidden; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script src="../../src/pt/balloc.js"></script>
+    <script>
+
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+        const COUNT = 16384;
+
+        const INITIAL_BYTES = COUNT * 4 * 4; 
+
+        // Inicializa Balloc usando o tipo Ponto Flutuante de 32 bits
+        const memory = new Balloc(INITIAL_BYTES, "32f");
+
+        const posX = memory.alloc(COUNT);
+        const posY = memory.alloc(COUNT);
+        const velX = memory.alloc(COUNT);
+        const velY = memory.alloc(COUNT);
+
+        memory.fill(posX, 0, 0, COUNT);
+        memory.fill(posY, 0, 0, COUNT);
+        memory.fill(velX, 0, 0, COUNT);
+        memory.fill(velY, 0, 0, COUNT);
+
+        let w = canvas.width = window.innerWidth;
+        let h = canvas.height = window.innerHeight;
+
+        // Posição do mouse/alvo
+        let targetX = w / 2;
+        let targetY = h / 2;
+
+        window.addEventListener("mousemove", (e) => {
+            targetX = e.clientX;
+            targetY = e.clientY;
+        });
+
+        // Preenchimento inicial de posições e velocidades
+        for (let i = 0; i < COUNT; i++) {
+            memory.set(posX, i, Math.random() * w);
+            memory.set(posY, i, Math.random() * h);
+            memory.set(velX, i, (Math.random() * 4 - 2));
+            memory.set(velY, i, (Math.random() * 4 - 2));
+        }
+
+        function update() {
+    const dt = 0.16; // Passo de tempo constante
+    
+    for (let i = 0; i < COUNT; i++) {
+        let x = memory.get(posX, i);
+        let y = memory.get(posY, i);
+        let vx = memory.get(velX, i);
+        let vy = memory.get(velY, i);
+
+        // 1. Vetor de direção até o alvo
+        const dx = targetX - x;
+        const dy = targetY - y;
+        const distSq = dx * dx + dy * dy + 100; // +100 evita divisão por zero
+        const dist = Math.sqrt(distSq);
+
+        // 2. Aceleração inversamente proporcional à distância
+        const force = 500 / distSq;
+        const ax = (dx / dist) * force;
+        const ay = (dy / dist) * force;
+
+        // 3. Atualiza velocidade (Aceleração) com um leve amortecimento (drag)
+        vx = (vx + ax) * 0.98;
+        vy = (vy + ay) * 0.98;
+
+        // 4. Atualiza posição
+        x += vx;
+        y += vy;
+
+        memory.set(velX, i, vx);
+        memory.set(velY, i, vy);
+        memory.set(posX, i, x);
+        memory.set(posY, i, y);
+    }
+}
+
+        function render() {
+            ctx.fillStyle = "rgba(17, 17, 17, 0.3)";
+            ctx.fillRect(0, 0, w, h);
+            ctx.fillStyle = "#00ffcc";
+
+            for (let i = 0; i < COUNT; i++) {
+                const x = memory.get(posX, i);
+                const y = memory.get(posY, i);
+                ctx.fillRect(x, y, 2, 2);
+            }
+
+            update();
+            requestAnimationFrame(render);
+        }
+
+        render();
+    </script>
+</body>
+</html>

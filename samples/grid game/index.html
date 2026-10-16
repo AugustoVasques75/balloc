@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="utf-8">
+    <title>Grid Game</title>
+    <style>
+        body {
+            margin: 0;
+            background: #111;
+            color: #fff;
+            font-family: monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+
+        .container {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+        }
+
+        canvas {
+            border: 2px solid #333;
+            background: #000;
+        }
+
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .panel {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .info {
+            margin-top: 15px;
+            font-size: 14px;
+        }
+
+        .placar {
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="placar">
+        SCORE: <span id="score">0</span>
+    </div>
+    <div class="container">
+        <canvas id="canvas" width="240" height="480"></canvas>
+        <div class="sidebar">
+            <div class="panel">
+                <div>Next:</div>
+                <canvas id="nextCanvas" width="96" height="96"></canvas>
+            </div>
+            <div class="panel">
+                <div>Retain (C):</div>
+                <canvas id="holdCanvas" width="96" height="96"></canvas>
+            </div>          
+        </div>
+    </div>
+
+    <div class="info">
+        Level: <span id="level">1</span> | Lines: <span id="lines">0</span> | ← → (Move) | ↑ (Rotate) | ↓ (Quicken) | Space (Hasten) | C (Retain)
+    </div>
+
+    <script src="../../src/pt/balloc.js"></script>
+    <script>
+        const COLS = 10;
+        const ROWS = 20;
+        const BLOCK_SIZE = 24;
+
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+        const nextCanvas = document.getElementById("nextCanvas");
+        const nextCtx = nextCanvas.getContext("2d");
+        const holdCanvas = document.getElementById("holdCanvas");
+        const holdCtx = holdCanvas.getContext("2d");
+
+        const levelEl = document.getElementById("level");
+        const linesEl = document.getElementById("lines");
+        const scoreEl = document.getElementById("score");
+
+        let audioCtx = null;
+        let bgmInterval = null;
+        let gameStarted = false;
+        let gameOver = false;
+
+        ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fff";                
+        ctx.font = "12px monospace";
+        ctx.fillText("Press a key", canvas.width / 2 - 40, canvas.height / 2 + 20);
+        ctx.fillText("to start", canvas.width / 2 - 30, canvas.height / 2 + 40);
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                startBGM();
+            } else if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playSound(freq, type, duration, vol = 0.1) {
+            if (!audioCtx) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch (e) { }
+        }
+
+        function sfxMove() { playSound(150, 'triangle', 0.05, 0.05); }
+        function sfxRotate() { playSound(440, 'sine', 0.08, 0.08); }
+        function sfxDrop() { playSound(100, 'square', 0.1, 0.08); }
+        function sfxClear() {
+            if (!audioCtx) return;
+            const now = audioCtx.currentTime;
+            [523.25, 659.25, 783.99, 1046.50].forEach((f, i) => {
+                setTimeout(() => playSound(f, 'sine', 0.15, 0.1), i * 60);
+            });
+        }
+        function sfxGameOver() {
+            if (!audioCtx) return;
+            [300, 250, 200, 150].forEach((f, i) => {
+                setTimeout(() => playSound(f, 'sawtooth', 0.2, 0.12), i * 120);
+            });
+        }
+
+        function startBGM() {
+            const notes = [220, 247.09, 261.63, 293.66, 329.63, 293.66, 261.63, 247.09];
+            let step = 0;
+            if (bgmInterval) clearInterval(bgmInterval);
+            bgmInterval = setInterval(() => {
+                if (!audioCtx || audioCtx.state !== 'running') return;
+                playSound(notes[step], 'sine', 0.2, 0.02);
+                step = (step + 1) % notes.length;
+            }, 300);
+        }
+
+        const memory8u = new Balloc(COLS * ROWS + 1344, "8u");
+        const grid = memory8u.alloc(COLS * ROWS);
+        memory8u.fill(grid, 0, 0, COLS * ROWS);
+
+        const memory32u = new Balloc((13 + 8 + 21) * 32, "32u");
+        const memory64u = new Balloc(1024, "64u");
+
+        const COLORS = memory32u.alloc(8);
+        memory32u.push(COLORS, 0);
+        memory32u.push(COLORS, 0x00f0f0); 
+        memory32u.push(COLORS, 0x0000f0); 
+        memory32u.push(COLORS, 0xf0a000); 
+        memory32u.push(COLORS, 0xf0f000); 
+        memory32u.push(COLORS, 0x00f000); 
+        memory32u.push(COLORS, 0xa000f0); 
+        memory32u.push(COLORS, 0xf00000); 
+
+        const POINTS = memory32u.alloc(5);
+        memory32u.push(POINTS, 0);
+        memory32u.push(POINTS, 40); 
+        memory32u.push(POINTS, 100);  
+        memory32u.push(POINTS, 300); 
+        memory32u.push(POINTS, 1200); 
+
+        const order = memory8u.alloc(8);
+        memory8u.push(order, 0); 
+        memory8u.push(order, 4); 
+        memory8u.push(order, 3); 
+        memory8u.push(order, 3); 
+        memory8u.push(order, 2); 
+        memory8u.push(order, 3); 
+        memory8u.push(order, 3); 
+        memory8u.push(order, 3); 
+
+        let PIECES = Array(8);
+        
+        const references = memory64u.alloc(8);
+        memory64u.push(references, 0n); 
+        memory64u.push(references, PIECES[1] = BigInt(memory64u.alloc(memory8u.get(order, 1)))); 
+        memory64u.push(references, PIECES[2] = BigInt(memory64u.alloc(memory8u.get(order, 2)))); 
+        memory64u.push(references, PIECES[3] = BigInt(memory64u.alloc(memory8u.get(order, 3)))); 
+        memory64u.push(references, PIECES[4] = BigInt(memory64u.alloc(memory8u.get(order, 4)))); 
+        memory64u.push(references, PIECES[5] = BigInt(memory64u.alloc(memory8u.get(order, 5)))); 
+        memory64u.push(references, PIECES[6] = BigInt(memory64u.alloc(memory8u.get(order, 6)))); 
+        memory64u.push(references, PIECES[7] = BigInt(memory64u.alloc(memory8u.get(order, 7)))); 
+
+        for(let i = 1; i < 8; i++) {
+            memory64u.fill(Number(PIECES[i]), 0n, 0);
+        }
+
+        for(let i = 1; i < 8; i++) {
+            let size = memory8u.get(order, i);
+            for(let j = 0; j < size; j++) {
+                const buffer = memory8u.alloc(size);
+                memory64u.set(Number(PIECES[i]), j, BigInt(buffer));
+                memory8u.fill(buffer, 0, 0, size);
+            }
+        }
+
+        memory8u.put(Number(memory64u.get(Number(PIECES[1]), 0)), [0, 0, 0, 0]); 
+        memory8u.put(Number(memory64u.get(Number(PIECES[1]), 1)), [1, 1, 1, 1]); 
+        memory8u.put(Number(memory64u.get(Number(PIECES[1]), 2)), [0, 0, 0, 0]); 
+        memory8u.put(Number(memory64u.get(Number(PIECES[1]), 3)), [0, 0, 0, 0]); 
+
+        memory8u.put(Number(memory64u.get(Number(PIECES[2]), 0)), [2, 0, 0]); 
+        memory8u.put(Number(memory64u.get(Number(PIECES[2]), 1)), [2, 2, 2]); 
+        memory8u.put(Number(memory64u.get(Number(PIECES[2]), 2)), [0, 0, 0]); 
+
+        memory8u.put(Number(memory64u.get(Number(PIECES[3]), 0)), [0, 0, 3]); 
+        memory8u.put(Number(memory64u.get(Number(PIECES[3]), 1)), [3, 3, 3]); 
+        memory8u.put(Number(memory64u.get(Number(PIECES[3]), 2)), [0, 0, 0]); 
+
+        memory8u.put(Number(memory64u.get(Number(PIECES[4]), 0)), [4, 4]); 
+        memory8u.put(Number(memory64u.get(Number(PIECES[4]), 1)), [4, 4]); 
+
+        memory8u.put(Number(memory64u.get(Number(PIECES[5]), 0)), [0, 5, 5]); 
+        memory8u.put(Number(memory64u.get(Number(PIECES[5]), 1)), [5, 5, 0]); 
+        memory8u.put(Number(memory64u.get(Number(PIECES[5]), 2)), [0, 0, 0]); 
+
+        memory8u.put(Number(memory64u.get(Number(PIECES[6]), 0)), [0, 6, 0]); 
+        memory8u.put(Number(memory64u.get(Number(PIECES[6]), 1)), [6, 6, 6]); 
+        memory8u.put(Number(memory64u.get(Number(PIECES[6]), 2)), [0, 0, 0]); 
+
+        memory8u.put(Number(memory64u.get(Number(PIECES[7]), 0)), [7, 7, 0]); 
+        memory8u.put(Number(memory64u.get(Number(PIECES[7]), 1)), [0, 7, 7]); 
+        memory8u.put(Number(memory64u.get(Number(PIECES[7]), 2)), [0, 0, 0]); 
+
+        function getPieceMatrix(id) {
+            if (!Number.isInteger(id) || id < 1 || id > 7) {
+                throw new RangeError(`Invalid piece ID: ${id}`);
+            }
+
+            const rowCount = memory8u.get(order, id);
+            const pieceHandler = Number(PIECES[id]);
+            const matrix = new Array(rowCount);
+
+            for (let y = 0; y < rowCount; y++) {
+                const rowHandler = Number(memory64u.get(pieceHandler, y));
+                matrix[y] = memory8u.pick(rowHandler);
+            }
+
+            return matrix;
+        }
+
+        let down = false;
+        let left = false;
+        let right = false;
+
+        let score = 0;
+        let lineCount = 0;
+        let dropCounter = 0;
+        let dropInterval = 1000;
+        let moveCounter = 0;
+        const MOVE_INTERVAL = 100;
+
+        let lastTime = 0;
+        let level = 1;
+
+        let piece = null;
+        let nextPiece = null;
+        let holdPiece = null;
+        let canHold = true;
+
+        function getColor(index) {
+            return "#" + memory32u.get(COLORS, index).toString(16).padStart(6, "0");
+        }
+
+        function createPiece() {
+            const id = (Math.random() * 7 | 0) + 1;
+            const matrix = getPieceMatrix(id);
+            return {
+                id: id,
+                matrix: matrix,
+                x: 0,
+                y: 0
+            };
+        }
+
+        function resetPiece() {
+            if (!nextPiece) {
+                nextPiece = createPiece();
+            }
+
+            piece = nextPiece;
+            piece.x = (COLS / 2 | 0) - (piece.matrix[0].length / 2 | 0);
+            piece.y = 0;
+
+            nextPiece = createPiece();
+            canHold = true;
+
+            if (collide(grid, piece)) {
+                sfxGameOver();
+                gameOver = true;
+            }
+        }
+
+        function holdCurrentPiece() {
+            if (!canHold || !piece) return;
+
+            if (!holdPiece) {
+                holdPiece = { id: piece.id, matrix: getPieceMatrix(piece.id) };
+                resetPiece();
+            } else {
+                const temp = { id: piece.id, matrix: getPieceMatrix(piece.id) };
+                piece = {
+                    id: holdPiece.id,
+                    matrix: holdPiece.matrix,
+                    x: (COLS / 2 | 0) - (holdPiece.matrix[0].length / 2 | 0),
+                    y: 0
+                };
+                holdPiece = temp;
+            }
+            canHold = false;
+            sfxMove();
+        }
+
+        function collide(gridHandle, piece) {
+            const m = piece.matrix;
+            for (let y = 0; y < m.length; ++y) {
+                for (let x = 0; x < m[y].length; ++x) {
+                    if (m[y][x] !== 0) {
+                        const boardX = piece.x + x;
+                        const boardY = piece.y + y;
+
+                        if (boardX < 0 || boardX >= COLS || boardY >= ROWS) {
+                            return true;
+                        }
+
+                        if (boardY >= 0) {
+                            const cellIndex = boardY * COLS + boardX;
+                            if (memory8u.get(gridHandle, cellIndex) !== 0) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        function merge(gridHandle, piece) {
+            const m = piece.matrix;
+            for (let y = 0; y < m.length; ++y) {
+                for (let x = 0; x < m[y].length; ++x) {
+                    if (m[y][x] !== 0) {
+                        const cellIndex = (piece.y + y) * COLS + (piece.x + x);
+                        memory8u.set(gridHandle, cellIndex, piece.id);
+                    }
+                }
+            }
+        }
+
+        function sweep(gridHandle) {
+            let linesCleared = 0;
+
+            for (let y = ROWS - 1; y >= 0; --y) {
+                let isFull = true;
+
+                for (let x = 0; x < COLS; ++x) {
+                    if (memory8u.get(gridHandle, y * COLS + x) === 0) {
+                        isFull = false;
+                        break;
+                    }
+                }
+
+                if (isFull) {
+                    linesCleared++;
+
+                    if (y > 0) {
+                        const target = COLS;
+                        const start = 0;
+                        const length = y * COLS;
+                        memory8u.copyWithin(gridHandle, target, start, length);
+                    }
+
+                    for (let x = 0; x < COLS; ++x) {
+                        memory8u.set(gridHandle, x, 0);
+                    }
+
+                    y++;
+                }
+            }
+
+            if (linesCleared > 0) {
+                sfxClear();
+                lineCount += linesCleared;
+                score += memory32u.get(POINTS, linesCleared) * level;
+
+                level = 1 + Math.floor(lineCount / 5);
+                dropInterval = 1000 - (level - 1) * 50;
+                dropInterval = dropInterval < 100 ? 50 : dropInterval;
+
+                linesEl.innerText = lineCount;
+                levelEl.innerText = level;
+                scoreEl.innerText = score;
+            }
+        }
+
+        function rotate(matrix) {
+            const N = matrix.length;
+            return matrix.map((row, i) =>
+                row.map((val, j) => matrix[N - 1 - j][i])
+            );
+        }
+
+        function playerDrop() {
+            piece.y++;
+            if (collide(grid, piece)) {
+                piece.y--;
+                merge(grid, piece);
+                sweep(grid);
+                resetPiece();
+            }
+            dropCounter = 0;
+        }
+
+        function hardDrop() {
+            if (!piece) return;
+            while (!collide(grid, piece)) {
+                piece.y++;
+            }
+            piece.y--;
+            merge(grid, piece);
+            sweep(grid);
+            resetPiece();
+            dropCounter = 0;
+            sfxDrop();
+        }
+
+        function playerMove(dir) {
+            piece.x += dir;
+            if (collide(grid, piece)) {
+                piece.x -= dir;
+            } else {
+                sfxMove();
+            }
+        }
+
+        function playerRotate() {
+            const pos = piece.x;
+            let offset = 1;
+            const oldMatrix = piece.matrix;
+            piece.matrix = rotate(piece.matrix);
+
+            while (collide(grid, piece)) {
+                piece.x += offset;
+                offset = -(offset + (offset > 0 ? 1 : -1));
+                if (offset > piece.matrix[0].length) {
+                    piece.matrix = oldMatrix;
+                    piece.x = pos;
+                    return;
+                }
+            }
+            sfxRotate();
+        }
+
+        document.addEventListener("keydown", event => {
+            if (!gameStarted) {
+                initAudio();
+                gameStarted = true;
+                resetPiece();
+                lastTime = performance.now();
+                update(lastTime);
+                return;
+            }
+
+            if (gameOver) {
+                memory8u.fill(grid, 0, 0, COLS * ROWS);
+                score = 0;
+                lineCount = 0;
+                dropCounter = 0;
+                dropInterval = 1000;
+                level = 1;
+                nextPiece = null;
+                holdPiece = null;
+                linesEl.innerText = lineCount;
+                levelEl.innerText = level;
+                scoreEl.innerText = score;
+                
+                gameOver = false;
+                resetPiece();
+                lastTime = performance.now();
+                update(lastTime);
+                return;
+            }
+
+            if (event.key === "ArrowUp" && !event.repeat) playerRotate();
+            if (event.key === "ArrowDown") down = true;
+            if (event.key === "ArrowLeft") left = true;
+            if (event.key === "ArrowRight") right = true;
+            if (event.code === "Space" && !event.repeat) hardDrop();
+            if ((event.key === "c" || event.key === "C") && !event.repeat) holdCurrentPiece();
+        });
+
+        document.addEventListener("keyup", event => {
+            if (!gameStarted || gameOver) return;
+            if (event.key === "ArrowDown") down = false;
+            if (event.key === "ArrowLeft") left = false;
+            if (event.key === "ArrowRight") right = false;
+        });
+
+        function drawGhostPiece() {
+            if (!piece) return;
+
+            const ghost = {
+                id: piece.id,
+                matrix: piece.matrix,
+                x: piece.x,
+                y: piece.y
+            };
+
+            while (!collide(grid, ghost)) {
+                ghost.y++;
+            }
+            ghost.y--;
+
+            const m = ghost.matrix;
+            for (let y = 0; y < m.length; ++y) {
+                for (let x = 0; x < m[y].length; ++x) {
+                    if (m[y][x] !== 0) {
+                        ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
+                        ctx.fillRect(
+                            (x + ghost.x) * BLOCK_SIZE,
+                            (y + ghost.y) * BLOCK_SIZE,
+                            BLOCK_SIZE - 1,
+                            BLOCK_SIZE - 1
+                        );
+                    }
+                }
+            }
+        }
+
+        function drawMatrix(matrix, offset) {
+            for (let y = 0; y < matrix.length; ++y) {
+                for (let x = 0; x < matrix[y].length; ++x) {
+                    const value = matrix[y][x];
+                    if (value !== 0) {
+                        ctx.fillStyle = getColor(value);
+                        ctx.fillRect(
+                            (x + offset.x) * BLOCK_SIZE,
+                            (y + offset.y) * BLOCK_SIZE,
+                            BLOCK_SIZE - 1,
+                            BLOCK_SIZE - 1
+                        );
+                    }
+                }
+            }
+        }
+
+        function drawBoard() {
+            for (let y = 0; y < ROWS; ++y) {
+                for (let x = 0; x < COLS; ++x) {
+                    const value = memory8u.get(grid, y * COLS + x);
+                    if (value !== 0) {
+                        ctx.fillStyle = getColor(value);
+                        ctx.fillRect(
+                            x * BLOCK_SIZE,
+                            y * BLOCK_SIZE,
+                            BLOCK_SIZE - 1,
+                            BLOCK_SIZE - 1
+                        );
+                    }
+                }
+            }
+        }
+
+        function drawPreview(targetCtx, targetCanvas, targetPiece) {
+            targetCtx.fillStyle = "#000";
+            targetCtx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+
+            if (!targetPiece) return;
+
+            const m = targetPiece.matrix;
+            const offsetX = (4 - m[0].length) / 2;
+            const offsetY = (4 - m.length) / 2;
+
+            for (let y = 0; y < m.length; ++y) {
+                for (let x = 0; x < m[y].length; ++x) {
+                    const value = m[y][x];
+                    if (value !== 0) {
+                        targetCtx.fillStyle = getColor(value);
+                        targetCtx.fillRect(
+                            (x + offsetX) * BLOCK_SIZE,
+                            (y + offsetY) * BLOCK_SIZE,
+                            BLOCK_SIZE - 1,
+                            BLOCK_SIZE - 1
+                        );
+                    }
+                }
+            }
+        }
+
+        function update(time = 0) {
+            if (gameOver) {
+                ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.fillStyle = "#fff";
+                ctx.font = "20px monospace";
+                ctx.textAlign = "center";
+                ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2 - 20);
+                
+                ctx.font = "12px monospace";
+                ctx.fillText("Press a key", canvas.width / 2, canvas.height / 2 + 20);
+                ctx.fillText("to start", canvas.width / 2, canvas.height / 2 + 40);
+                return;
+            }
+
+            const deltaTime = time - lastTime;
+            lastTime = time;
+
+            moveCounter += deltaTime;
+            if (moveCounter > MOVE_INTERVAL) {
+                if (left) playerMove(-1);
+                if (right) playerMove(1);
+                if (down) playerDrop();
+                moveCounter = 0;
+            }
+
+            dropCounter += deltaTime;
+            if (dropCounter > dropInterval) {
+                playerDrop();
+            }
+
+            ctx.fillStyle = "#000";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            drawBoard();
+            drawGhostPiece();
+            if (piece) {
+                drawMatrix(piece.matrix, piece);
+            }
+
+            drawPreview(nextCtx, nextCanvas, nextPiece);
+            drawPreview(holdCtx, holdCanvas, holdPiece);
+
+            requestAnimationFrame(update);
+        }
+    </script>
+</body>
+
+</html>
