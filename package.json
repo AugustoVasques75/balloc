@@ -1,6 +1,7 @@
 {
   "name": "balloc",
-  "version": "1.0.0",
+  "version": "1.0.1",
+  "homepage": "https://github.com/AugustoVasques75/balloc",
   "description": "Bump allocation memory allocator",
   "main": "./src/en/balloc.mjs",
   "unpkg": "./src/en/balloc.js",
@@ -8,8 +9,9 @@
   "types": "./types/en/balloc.d.mts",
   "type": "module",
   "files": [
-    "src/",
     "docs/",
+    "img/",
+    "src/",
     "types/",
     "LICENSE",
     "README.md"

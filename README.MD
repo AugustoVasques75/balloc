@@ -1,5 +1,3 @@
-📦 **[NPM Package](https://www.npmjs.com/package/balloc)** | 🔗 **[GitHub](https://github.com/AugustoVasques75/balloc)**
-
 You can also find this documentation translated into other languages:
 | Idioma | Link |
 |---|---|
@@ -115,36 +113,36 @@ yarn add Balloc
 In HTML, use the unpkg CDN:
 
 ```text
-[https://unpkg.com/Balloc](https://unpkg.com/Balloc)
+https://unpkg.com/Balloc
 
 ```
 
 Or use its localized docstring versions for some languages:
 
 ```
-Arabic:    [https://unpkg.com/Balloc/src/ar/Balloc.mjs](https://unpkg.com/Balloc/src/ar/Balloc.mjs)
-English:   [https://unpkg.com/Balloc/src/en/Balloc.mjs](https://unpkg.com/Balloc/src/en/Balloc.mjs)
-Spanish: [https://unpkg.com/Balloc/src/es/Balloc.mjs](https://unpkg.com/Balloc/src/es/Balloc.mjs)
-Japanese:  [https://unpkg.com/Balloc/src/jp/Balloc.mjs](https://unpkg.com/Balloc/src/jp/Balloc.mjs)
-Chinese:   [https://unpkg.com/Balloc/src/zh/Balloc.mjs](https://unpkg.com/Balloc/src/zh/Balloc.mjs)
+Arabic:    https://unpkg.com/Balloc/src/ar/Balloc.mjs
+English:   https://unpkg.com/Balloc/src/en/Balloc.mjs
+Spanish: https://unpkg.com/Balloc/src/es/Balloc.mjs
+Japanese:  https://unpkg.com/Balloc/src/jp/Balloc.mjs
+Chinese:   https://unpkg.com/Balloc/src/zh/Balloc.mjs
 
 ```
 
 Ou ainda utilize o CDN jsDelivr:
 
 ```text
-[https://cdn.jsdelivr.net/npm/Balloc](https://cdn.jsdelivr.net/npm/Balloc)
+https://cdn.jsdelivr.net/npm/Balloc
 
 ```
 
 CDNs with localization support:
 
 ```
-Arabic:    [https://cdn.jsdelivr.net/npm/Balloc/src/ar/Balloc.mjs](https://cdn.jsdelivr.net/npm/Balloc/src/ar/Balloc.mjs)
-English:   [https://cdn.jsdelivr.net/npm/Balloc/src/en/Balloc.mjs](https://cdn.jsdelivr.net/npm/Balloc/src/en/Balloc.mjs)
-Spanish: [https://cdn.jsdelivr.net/npm/Balloc/src/es/Balloc.mjs](https://cdn.jsdelivr.net/npm/Balloc/src/es/Balloc.mjs)
-Japanese:  [https://cdn.jsdelivr.net/npm/Balloc/src/jp/Balloc.mjs](https://cdn.jsdelivr.net/npm/Balloc/src/jp/Balloc.mjs)
-Chinese:   [https://cdn.jsdelivr.net/npm/Balloc/src/zh/Balloc.mjs](https://cdn.jsdelivr.net/npm/Balloc/src/zh/Balloc.mjs)
+Arabic:    https://cdn.jsdelivr.net/npm/Balloc/src/ar/Balloc.mjs
+English:   https://cdn.jsdelivr.net/npm/Balloc/src/en/Balloc.mjs
+Spanish: https://cdn.jsdelivr.net/npm/Balloc/src/es/Balloc.mjs
+Japanese:  https://cdn.jsdelivr.net/npm/Balloc/src/jp/Balloc.mjs
+Chinese:   https://cdn.jsdelivr.net/npm/Balloc/src/zh/Balloc.mjs
 
 ```
 
@@ -428,7 +426,7 @@ If you like this project and want to support its development:
 
 | Pix QR Code | Copy-and-Paste / Random Key |
 | :---: | :--- |
-| ![Pix QR Code](./img/pix.png) | **Random Key:**<br>`e87d773a-0b97-4410-8fc3-f7ec04cce6a2` |
+| <img src="./img/pix.png" alt="Pix QR Code" width="200"> | **Random Key:**<br>`e87d773a-0b97-4410-8fc3-f7ec04cce6a2` |
 
 ## License
 
