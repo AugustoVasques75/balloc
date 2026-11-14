@@ -138,8 +138,8 @@ export default class Balloc {
         this.bucketArray = globalThis[`${this.bucketType}Array`];
         this.wordSize = this.bucketSize >>> 3;
         this.wordShift = this.bucketSize >>> 4;
-        this.size = Math.max(1 << (32 - Math.clz32(size)) >>> 0, this.wordSize);
-        this.headerSize = 1 << (32 - Math.clz32(metadataSize)) >>> 0;
+        this.size = Math.max(1 << (32 - Math.clz32(size - 1)) >>> 0, this.wordSize);
+        this.headerSize = 1 << (32 - Math.clz32(metadataSize - 1)) >>> 0;
         this.dataPointer = 0 >>> 0;
         this.controlPointer = 0 >>> 0;
         this.echoPointer = 0 >>> 0;

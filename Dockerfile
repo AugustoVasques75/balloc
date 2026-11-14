@@ -3,11 +3,11 @@ FROM node:${NODE_VERSION}-alpine
 
 WORKDIR /app
 
-COPY dist/balloc-1.0.0.tgz ./
+COPY dist/balloc-1.2.0.tgz ./
 
 RUN npm init -y && \
     npm pkg set type="module" && \
-    npm install ./balloc-1.0.0.tgz && \
+    npm install ./balloc-1.2.0.tgz && \
     npm install --save-dev jest
 
 RUN mkdir -p test
