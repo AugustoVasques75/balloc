@@ -53,7 +53,8 @@ Balloc
 │   ├── fill()
 │   ├── fillAll()
 │   ├── put()
-│   └── pick()
+│   ├── pick()
+│   └── withView()
 │
 │
 ├── Capacidade e ocupação
@@ -125,6 +126,37 @@ length(handler)    → slots físicos
 occupied(handler)  → slots ocupados
 byteSize(handler)  → bytes físicos reservados
 ```
+
+## Empréstimo de memória com `withView()`
+
+`withView(handler, callback)` fornece ao callback uma view tipada diretamente sobre a região de dados do bloco. A view abrange somente os elementos ocupados, não inclui a capacidade livre e não cria uma cópia: alterações feitas nela modificam imediatamente o conteúdo do bloco.
+
+O empréstimo é síncrono. O callback recebe a view como único argumento, e o valor retornado pelo callback é propagado por `withView()`. O bloqueio é liberado em um bloco `finally`, inclusive quando o callback lança uma exceção.
+
+```js
+const result = memory.withView(handler, view => {
+    view[0] = 42;
+    return view.length;
+});
+```
+
+A view não deve ser retida nem utilizada depois que o callback terminar. Se o callback retornar uma Promise, o empréstimo será liberado assim que o callback retornar essa Promise, e não quando ela for resolvida.
+
+### Restrições durante o empréstimo
+
+Enquanto um bloco estiver emprestado, uma segunda chamada a `withView()` para o mesmo handler lança `Error`. Também lançam `Error` as operações que modificam diretamente esse bloco:
+
+- `push()`, `pop()`, `nudge()` e `pull()`;
+- `set()`, `clear()`, `fill()`, `fillAll()` e `put()`;
+- `realloc()` e `free()`;
+- `copyWithin()`;
+- `copy()`, quando o bloco emprestado é o destino;
+- `append()`, quando o bloco emprestado é o destino;
+- `swap()`, quando qualquer um dos dois blocos está emprestado.
+
+As operações de leitura não são bloqueadas. Em `copy()` e `append()`, o bloco de origem pode estar emprestado, pois essas operações não modificam a origem.
+
+Além disso, operações que substituem ou remapeiam o `dataBus` não podem ocorrer enquanto existir qualquer view ativa. Isso inclui `gc()` e o crescimento do barramento acionado por `alloc()` ou `realloc()`. Nesses casos, é lançado `Error` com a mensagem `Cannot remap memory while a block is borrowed`.
 
 
 ---
@@ -267,6 +299,8 @@ void
 ### Exceções
 
 - `Error` — handler inválido ou corrompido.
+- `Error` — o bloco está emprestado por `withView()`.
+- `Error` — o crescimento do `dataBus` é necessário enquanto existe algum empréstimo ativo.
 - `AggregateError` — capacidade já atingiu o limite máximo.
 
 ### Exemplo
@@ -304,7 +338,8 @@ void
 
 ### Exceções
 
-`Error` quando o handler é inválido ou corrompido.
+- `Error` — handler inválido ou corrompido.
+- `Error` — o bloco está emprestado por `withView()`.
 
 ```js
 memory.free(handler);
@@ -344,7 +379,7 @@ O percurso dos headers é `O(n)`, onde `n` é o número de headers examinados. O
 memory.gc();
 ```
 
-O `gc()` não altera os handlers, pois os headers permanecem nos mesmos endereços; somente as regiões de dados são compactadas.
+O `gc()` não altera os handlers, pois os headers permanecem nos mesmos endereços; somente as regiões de dados são compactadas. A operação lança `Error` se houver qualquer empréstimo ativo por `withView()`, pois a compactação substitui o `dataBus` e invalidaria as views existentes.
 
 ---
 
@@ -976,7 +1011,10 @@ Handler do novo bloco recriado.
 
 ### Exceções
 
-`Error` — se o tipo de palavra do dado decodificado divergir do configurado no alocador.
+- `TypeError` — argumento que não seja `ArrayBuffer` nem `Uint8Array`, envelope CBOR inválido, flag de endianness inválida ou payload incompatível com o tipo e o tamanho de elemento esperados.
+- `Error` — versão de serialização não suportada ou tipo de palavra incompatível com o alocador.
+- `RangeError` — expoente de capacidade ou ocupação fora dos limites permitidos.
+- `Error` — o crescimento do `dataBus` é necessário enquanto existe algum empréstimo ativo por `withView()`.
 
 ---
 
@@ -1218,7 +1256,8 @@ offset  tamanho  campo
 4       4 bytes  occupied
 8       1 byte   capacity
 9       1 byte   cookie
-10      6 bytes  reserved
+10      1 byte   flags
+11      5 bytes  reserved
 ```
 
 
@@ -1250,6 +1289,10 @@ capacityBytes = 2 ** capacity × wordSize
 ### `cookie`
 
 Valor de validação associado ao endereço do header e à geração do handler.
+
+### `flags`
+
+Flags de estado do header. O bit `VIEW_LOCK` indica que o bloco está emprestado por uma chamada ativa a `withView()`. O bit é ativado antes da execução do callback e desativado ao final, inclusive quando ocorre uma exceção.
 
 ---
 
@@ -1298,6 +1341,7 @@ A geração participa da validação por cookie. Consequentemente, um handler in
 | Acesso | `fillAll()` | `void`<br> |
 | Acesso | `put()` | `void`<br> |
 | Acesso | `pick()` | `TypedArray`<br> |
+| Acesso | `withView()` | valor retornado pelo callback |
 | Capacidade | `byteSize()` | `number`<br> |
 | Capacidade | `occupied()` | `number`<br> |
 | Capacidade | `length()` | `number`<br> |
