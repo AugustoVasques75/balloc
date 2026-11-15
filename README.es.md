@@ -333,7 +333,7 @@ A continuación, un resumen de estos grupos:
 | `fillAll()` | Rellenar y ocupar todo el bloque |
 | `put()` | Copiar un array a un bloque |
 | `pick()` | Copiar elementos ocupados fuera de un bloque |
-| `withView()` | Borrow a typed view over occupied elements |
+| `withView()` | Tomar prestada una vista tipada de los elementos ocupados |
 
 ### Intercambio entre bloques
 
