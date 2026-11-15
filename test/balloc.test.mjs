@@ -1,0 +1,493 @@
+import { describe, it, expect } from "vitest";
+import Balloc from "../src/pt/balloc.mjs";
+
+describe("Balloc", () => {
+    describe("constructor", () => {
+        it.each([2, 4, 8, 16, 32, 64, 128, 256])("reserva exatamente %i bytes quando size é potência de dois", (size) => {
+            const memory = new Balloc(size, "8u", 16);
+            expect(memory.dataBus.byteLength).toBe(size);
+        });
+
+        it.each([16, 32, 64, 128, 256])("reserva exatamente %i bytes para metadataSize", (size) => {
+            const memory = new Balloc(64, "8u", size);
+            expect(memory.controlBus.byteLength).toBe(size);
+        });
+
+        it.each([0, 1, -1, 2.5, NaN, Infinity, 0x80000001])("rejeita size inválido: %s", (size) => {
+            expect(() => new Balloc(size)).toThrow(RangeError);
+        });
+
+        it.each(["8u", "16u", "32u", "64u", "8i", "16i", "32i", "64i", "32f", "64f"])("aceita bucketSize %s", (type) => {
+            expect(() => new Balloc(64, type)).not.toThrow();
+        });
+
+        it.each(["8f", "16x", "32", "128u", "", null, undefined])("rejeita bucketSize inválido: %s", (type) => {
+            if (type === undefined) return;
+            expect(() => new Balloc(64, type)).toThrow(RangeError);
+        });
+
+        it.each([0, 1, 2, 8, 15, 2.5, NaN, Infinity])("rejeita metadataSize inválido: %s", (size) => {
+            expect(() => new Balloc(64, "8u", size)).toThrow(RangeError);
+        });
+    });
+
+    describe("alloc / capacidade", () => {
+        it.each([
+            [2, 2], [3, 4], [4, 4], [5, 8], [7, 8],
+            [8, 8], [9, 16], [15, 16], [16, 16], [17, 32]
+        ])("alloc(%i) deve reservar %i slots", (requested, capacity) => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(requested);
+            expect(memory.length(handler)).toBe(capacity);
+            expect(memory.occupied(handler)).toBe(0);
+            expect(memory.byteSize(handler)).toBe(capacity);
+        });
+
+        it("converte capacidade de elementos para bytes conforme bucketSize", () => {
+            const memory = new Balloc(64, "32u");
+            const handler = memory.alloc(5);
+            expect(memory.length(handler)).toBe(8);
+            expect(memory.byteSize(handler)).toBe(32);
+        });
+
+        it("rejeita tamanhos inválidos", () => {
+            const memory = new Balloc();
+            for (const size of [0, 1, -1, 2.5, NaN, Infinity, 0x80000001]) {
+                expect(() => memory.alloc(size)).toThrow(RangeError);
+            }
+        });
+
+        it("cresce o dataBus quando a capacidade disponível é insuficiente", () => {
+            const memory = new Balloc(16, "8u");
+            const first = memory.alloc(16);
+            const second = memory.alloc(16);
+            expect(memory.length(first)).toBe(16);
+            expect(memory.length(second)).toBe(16);
+            expect(memory.dataBus.byteLength).toBeGreaterThanOrEqual(32);
+        });
+
+        it("mantém handlers distintos para blocos simultaneamente vivos", () => {
+            const memory = new Balloc();
+            const handlers = Array.from({ length: 32 }, () => memory.alloc(2));
+            expect(new Set(handlers).size).toBe(handlers.length);
+        });
+    });
+
+    describe("Stack", () => {
+        it("push, peek e pop respeitam LIFO e ocupação", () => {
+            const memory = new Balloc(64, "32u");
+            const handler = memory.alloc(4);
+
+            expect(memory.pop(handler)).toBeUndefined();
+            expect(memory.peek(handler)).toBeUndefined();
+            expect(memory.push(handler, 10)).toBe(true);
+            expect(memory.push(handler, 20)).toBe(true);
+            expect(memory.push(handler, 30)).toBe(true);
+            expect(memory.occupied(handler)).toBe(3);
+            expect(memory.peek(handler)).toBe(30);
+            expect(memory.occupied(handler)).toBe(3);
+            expect(memory.pop(handler)).toBe(30);
+            expect(memory.pop(handler)).toBe(20);
+            expect(memory.pop(handler)).toBe(10);
+            expect(memory.pop(handler)).toBeUndefined();
+            expect(memory.occupied(handler)).toBe(0);
+        });
+
+        it("não insere elementos quando o bloco está cheio", () => {
+            const memory = new Balloc(64, "32u");
+            const handler = memory.alloc(2);
+
+            expect(memory.push(handler, 1)).toBe(true);
+            expect(memory.push(handler, 2)).toBe(true);
+            expect(memory.push(handler, 3)).toBe(false);
+            expect(memory.pick(handler)).toEqual(new Uint32Array([1, 2]));
+            expect(memory.occupied(handler)).toBe(2);
+        });
+    });
+
+    describe("Queue", () => {
+        it("nudge, head e pull respeitam FIFO", () => {
+            const memory = new Balloc(64, "32u");
+            const handler = memory.alloc(8);
+
+            expect(memory.pull(handler)).toBeUndefined();
+            expect(memory.head(handler)).toBeUndefined();
+            expect(memory.nudge(handler, 30)).toBe(true);
+            expect(memory.nudge(handler, 20)).toBe(true);
+            expect(memory.nudge(handler, 10)).toBe(true);
+            expect(memory.head(handler)).toBe(10);
+            expect(memory.pull(handler)).toBe(10);
+            expect(memory.pull(handler)).toBe(20);
+            expect(memory.pull(handler)).toBe(30);
+            expect(memory.pull(handler)).toBeUndefined();
+            expect(memory.occupied(handler)).toBe(0);
+        });
+
+        it("não altera a fila quando está cheia", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(2);
+
+            expect(memory.nudge(handler, 1)).toBe(true);
+            expect(memory.nudge(handler, 2)).toBe(true);
+            expect(memory.nudge(handler, 3)).toBe(false);
+            expect(memory.pick(handler)).toEqual(new Uint8Array([2, 1]));
+        });
+    });
+
+    describe("acesso ao conteúdo", () => {
+        it("put e pick preservam conteúdo e tipo da TypedArray", () => {
+            const memory = new Balloc(64, "32u");
+            const handler = memory.alloc(8);
+
+            memory.put(handler, [10, 20, 30]);
+            expect(memory.pick(handler)).toBeInstanceOf(Uint32Array);
+            expect(memory.pick(handler)).toEqual(new Uint32Array([10, 20, 30]));
+            expect(memory.occupied(handler)).toBe(3);
+        });
+
+        it("put aceita TypedArray e limita a cópia à capacidade", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(4);
+
+            memory.put(handler, new Uint8Array([1, 2, 3, 4, 5, 6]));
+            expect(memory.pick(handler)).toEqual(new Uint8Array([1, 2, 3, 4]));
+            expect(memory.occupied(handler)).toBe(4);
+        });
+
+        it("put não reduz a ocupação ao receber uma sequência menor", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(8);
+
+            memory.put(handler, [1, 2, 3, 4]);
+            memory.put(handler, [9]);
+            expect(memory.pick(handler)).toEqual(new Uint8Array([9, 2, 3, 4]));
+            expect(memory.occupied(handler)).toBe(4);
+        });
+
+        it("put rejeita dados que não sejam Array ou TypedArray", () => {
+            const memory = new Balloc();
+            const handler = memory.alloc(4);
+
+            for (const value of [null, undefined, 10, "abc", {}, new DataView(new ArrayBuffer(8))]) {
+                expect(() => memory.put(handler, value)).toThrow(TypeError);
+            }
+        });
+
+        it("get, set e has operam somente sobre elementos ocupados", () => {
+            const memory = new Balloc(64, "32u");
+            const handler = memory.alloc(8);
+
+            memory.put(handler, [10, 20, 30]);
+            expect(memory.get(handler, 0)).toBe(10);
+            expect(memory.get(handler, 2)).toBe(30);
+            expect(memory.get(handler, 3)).toBeUndefined();
+            expect(memory.set(handler, 1, 99)).toBe(true);
+            expect(memory.set(handler, 3, 40)).toBe(false);
+            expect(memory.get(handler, 1)).toBe(99);
+            expect(memory.has(handler, 99)).toBe(true);
+            expect(memory.has(handler, 20)).toBe(false);
+            expect(memory.has(handler, 0)).toBe(false);
+            expect(memory.occupied(handler)).toBe(3);
+        });
+
+        it("clear zera a ocupação sem alterar a capacidade", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(8);
+
+            memory.put(handler, [1, 2, 3, 4]);
+            const capacity = memory.length(handler);
+            memory.clear(handler);
+
+            expect(memory.length(handler)).toBe(capacity);
+            expect(memory.occupied(handler)).toBe(0);
+            expect(memory.pick(handler)).toEqual(new Uint8Array());
+        });
+
+        it("clear aceita valor de preenchimento", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(4);
+
+            memory.clear(handler, 7);
+            expect(memory.occupied(handler)).toBe(0);
+            expect(memory.dataBus.slice(0, 4)).toEqual(new Uint8Array([7, 7, 7, 7]));
+        });
+
+        it("fill preenche intervalo [start, end) e atualiza ocupação", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(8);
+
+            memory.fill(handler, 5, 2, 6);
+            expect(memory.occupied(handler)).toBe(6);
+            expect(memory.pick(handler)).toEqual(new Uint8Array([0, 0, 5, 5, 5, 5]));
+        });
+
+        it("fill rejeita intervalos fora da capacidade", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(8);
+
+            for (const [start, end] of [[-1, 2], [0, 9], [5, 4], [0, -1], [9, 9]]) {
+                expect(() => memory.fill(handler, 1, start, end)).toThrow(RangeError);
+            }
+        });
+
+        it("fillAll ocupa e preenche toda a capacidade", () => {
+            const memory = new Balloc(64, "16u");
+            const handler = memory.alloc(4);
+
+            memory.fillAll(handler, 1234);
+            expect(memory.occupied(handler)).toBe(memory.length(handler));
+            expect(memory.pick(handler)).toEqual(new Uint16Array([1234, 1234, 1234, 1234]));
+        });
+    });
+
+    describe("operações entre blocos", () => {
+        it("copy limita a transferência à capacidade do destino", () => {
+            const memory = new Balloc(128, "8u");
+            const source = memory.alloc(8);
+            const target = memory.alloc(2);
+
+            memory.put(source, [1, 2, 3, 4, 5, 6]);
+            memory.copy(source, target);
+
+            expect(memory.pick(target)).toEqual(new Uint8Array([1, 2]));
+            expect(memory.occupied(target)).toBe(2);
+        });
+
+        it("copy respeita o limite explícito de slots", () => {
+            const memory = new Balloc(128, "8u");
+            const source = memory.alloc(8);
+            const target = memory.alloc(8);
+
+            memory.put(source, [1, 2, 3, 4]);
+            memory.copy(source, target, 2);
+
+            expect(memory.pick(target)).toEqual(new Uint8Array([1, 2]));
+            expect(memory.occupied(target)).toBe(2);
+        });
+
+        it("append acrescenta elementos sem sobrescrever o destino", () => {
+            const memory = new Balloc(128, "8u");
+            const target = memory.alloc(8);
+            const source = memory.alloc(8);
+
+            memory.put(target, [1, 2]);
+            memory.put(source, [3, 4, 5]);
+
+            expect(memory.append(target, source)).toBe(3);
+            expect(memory.pick(target)).toEqual(new Uint8Array([1, 2, 3, 4, 5]));
+            expect(memory.occupied(target)).toBe(5);
+        });
+
+        it("append limita a quantidade ao espaço restante", () => {
+            const memory = new Balloc(128, "8u");
+            const target = memory.alloc(4);
+            const source = memory.alloc(8);
+
+            memory.fillAll(target, 1);
+            memory.put(source, [2, 3, 4]);
+
+            expect(memory.append(target, source)).toBe(0);
+            expect(memory.pick(target)).toEqual(new Uint8Array([1, 1, 1, 1]));
+        });
+
+        it("copyWithin trata regiões sobrepostas", () => {
+            const memory = new Balloc(128, "8u");
+            const handler = memory.alloc(8);
+
+            memory.put(handler, [1, 2, 3, 4, 5]);
+            memory.copyWithin(handler, 1, 0, 4);
+
+            expect(memory.pick(handler)).toEqual(new Uint8Array([1, 1, 2, 3, 4]));
+        });
+
+        it("clone cria bloco independente com mesma capacidade e conteúdo", () => {
+            const memory = new Balloc(128, "32u");
+            const original = memory.alloc(8);
+
+            memory.put(original, [10, 20, 30]);
+            const clone = memory.clone(original);
+
+            expect(clone).not.toBe(original);
+            expect(memory.length(clone)).toBe(memory.length(original));
+            expect(memory.occupied(clone)).toBe(memory.occupied(original));
+            expect(memory.pick(clone)).toEqual(memory.pick(original));
+
+            memory.set(clone, 0, 99);
+            expect(memory.get(original, 0)).toBe(10);
+            expect(memory.get(clone, 0)).toBe(99);
+        });
+
+        it("swap troca conteúdo, capacidade e ocupação entre handlers", () => {
+            const memory = new Balloc(128, "8u");
+            const a = memory.alloc(4);
+            const b = memory.alloc(8);
+
+            memory.put(a, [1, 2]);
+            memory.put(b, [7, 8, 9, 10]);
+
+            const aCapacity = memory.length(a);
+            const bCapacity = memory.length(b);
+
+            memory.swap(a, b);
+
+            expect(memory.length(a)).toBe(bCapacity);
+            expect(memory.length(b)).toBe(aCapacity);
+            expect(memory.pick(a)).toEqual(new Uint8Array([7, 8, 9, 10]));
+            expect(memory.pick(b)).toEqual(new Uint8Array([1, 2]));
+        });
+    });
+
+    describe("realloc", () => {
+        it("duplica a capacidade e preserva os elementos ocupados", () => {
+            const memory = new Balloc(128, "32u");
+            const handler = memory.alloc(4);
+
+            memory.put(handler, [11, 22, 33, 44]);
+            const previousCapacity = memory.length(handler);
+
+            memory.realloc(handler);
+
+            expect(memory.length(handler)).toBe(previousCapacity * 2);
+            expect(memory.occupied(handler)).toBe(4);
+            expect(memory.pick(handler)).toEqual(new Uint32Array([11, 22, 33, 44]));
+        });
+
+        it("mantém o handler válido após expansão", () => {
+            const memory = new Balloc(128, "8u");
+            const handler = memory.alloc(4);
+
+            memory.put(handler, [1, 2, 3]);
+            memory.realloc(handler);
+
+            expect(memory.get(handler, 0)).toBe(1);
+            expect(memory.get(handler, 1)).toBe(2);
+            expect(memory.get(handler, 2)).toBe(3);
+        });
+    });
+
+    describe("free / reciclagem / gc", () => {
+        it("free invalida o handler", () => {
+            const memory = new Balloc(128, "8u");
+            const handler = memory.alloc(8);
+
+            memory.put(handler, [1, 2, 3]);
+            memory.free(handler);
+
+            expect(() => memory.get(handler, 0)).toThrow();
+            expect(() => memory.occupied(handler)).toThrow();
+        });
+
+        it("reutiliza região liberada com capacidade correspondente", () => {
+            const memory = new Balloc(128, "8u");
+            const first = memory.alloc(8);
+            const second = memory.alloc(8);
+
+            memory.free(first);
+            const recycled = memory.alloc(8);
+
+            expect(memory.length(recycled)).toBe(8);
+            expect(memory.recycleCount()).toBe(0);
+            expect(() => memory.get(second, 0)).not.toThrow();
+        });
+
+        it("gc preserva handlers, conteúdo, capacidade e ocupação dos blocos vivos", () => {
+            const memory = new Balloc(256, "32u");
+            const a = memory.alloc(8);
+            const b = memory.alloc(8);
+            const c = memory.alloc(8);
+
+            memory.put(a, [1, 2, 3]);
+            memory.put(b, [4, 5, 6, 7]);
+            memory.put(c, [8, 9]);
+
+            const before = [a, b, c].map(handler => ({
+                values: memory.pick(handler),
+                length: memory.length(handler),
+                occupied: memory.occupied(handler)
+            }));
+
+            memory.free(b);
+            memory.gc();
+
+            for (const [index, handler] of [a, c].entries()) {
+                const expected = before[index === 0 ? 0 : 2];
+                expect(memory.pick(handler)).toEqual(expected.values);
+                expect(memory.length(handler)).toBe(expected.length);
+                expect(memory.occupied(handler)).toBe(expected.occupied);
+            }
+
+            expect(() => memory.get(b, 0)).toThrow();
+            expect(memory.recycleCount()).toBe(0);
+            expect(memory.recycleBytes).toBe(0);
+        });
+
+        it("rejeita handler já liberado", () => {
+            const memory = new Balloc();
+            const handler = memory.alloc(4);
+
+            memory.free(handler);
+            expect(() => memory.free(handler)).toThrow();
+        });
+    });
+
+    describe("serialização", () => {
+        it("dump e load preservam tipo, ocupação e conteúdo", () => {
+            const sourceMemory = new Balloc(128, "32u");
+            const source = sourceMemory.alloc(8);
+
+            sourceMemory.put(source, [100, 200, 300, 400]);
+            const serialized = sourceMemory.dump(source);
+
+            expect(serialized).toBeInstanceOf(Uint8Array);
+
+            const targetMemory = new Balloc(128, "32u");
+            const restored = targetMemory.load(serialized);
+
+            expect(targetMemory.pick(restored)).toEqual(new Uint32Array([100, 200, 300, 400]));
+            expect(targetMemory.occupied(restored)).toBe(4);
+            expect(targetMemory.length(restored)).toBe(8);
+        });
+
+        it("load rejeita dados serializados com bucket incompatível", () => {
+            const sourceMemory = new Balloc(128, "32u");
+            const source = sourceMemory.alloc(4);
+            sourceMemory.put(source, [1, 2, 3]);
+
+            const serialized = sourceMemory.dump(source);
+            const targetMemory = new Balloc(128, "8u");
+
+            expect(() => targetMemory.load(serialized)).toThrow();
+        });
+    });
+
+    describe("diagnóstico", () => {
+        it("inicia com heap vazio e sem fragmentação", () => {
+            const memory = new Balloc(64, "8u");
+
+            expect(memory.recycleCount()).toBe(0);
+            expect(memory.recycleBytes).toBe(0);
+            expect(memory.allocatedBytes).toBe(0);
+            expect(memory.unallocatedBytes).toBe(memory.size);
+            expect(memory.fragmentationRatio).toBe(0);
+        });
+
+        it("mantém consistência entre bytes alocados, recicláveis e ponteiro", () => {
+            const memory = new Balloc(128, "8u");
+            const a = memory.alloc(8);
+            const b = memory.alloc(8);
+
+            memory.free(a);
+
+            expect(memory.recycleBytes).toBe(8);
+            expect(memory.allocatedBytes).toBe(memory.dataPointer - memory.recycleBytes);
+            expect(memory.unallocatedBytes).toBe(memory.size - memory.dataPointer);
+            expect(memory.fragmentationRatio).toBe(memory.recycleBytes / memory.dataPointer);
+
+            memory.free(b);
+            expect(memory.recycleBytes).toBe(8);
+            expect(memory.dataPointer).toBe(8);
+            expect(memory.allocatedBytes).toBe(0);
+            expect(memory.recycleCount()).toBe(1);
+        });
+    });
+});

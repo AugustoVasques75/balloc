@@ -66,8 +66,8 @@
     "build": "npm run build:bundle && npm run build:types",
     "clear:images": "docker rmi $(docker images \"balloc-test\" -q)",
     "pack:local": "npm pack --pack-destination ./dist",
-    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
-    "test:cjs": "jest test/test.cjs"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [
     "memory",
@@ -89,9 +89,9 @@
   "author": "Augusto Vasques",
   "license": "MIT",
   "devDependencies": {
-    "jest": "^30.5.2",
     "tsup": "^8.5.1",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.12"
   },
   "overrides": {
     "esbuild": "^0.28.1",
