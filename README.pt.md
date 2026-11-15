@@ -445,7 +445,7 @@ Se você gosta deste projeto e quer apoiar o seu desenvolvimento:
 
 | QR Code Pix | Chave Copia e Cola / Aleatória |
 | :---: | :--- |
-| ![Pix QR Code](./img/pix.png) | **Chave Aleatória:**<br>`e87d773a-0b97-4410-8fc3-f7ec04cce6a2` |
+| ![Pix QR Code](https://raw.githubusercontent.com/AugustoVasques75/balloc/main/img/pix.png) | **Chave Aleatória:**<br>`e87d773a-0b97-4410-8fc3-f7ec04cce6a2` |
 
 ## Licença
 

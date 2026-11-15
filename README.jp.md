@@ -420,7 +420,7 @@ const result = memory.withView(handler, view => {
 
 | Pix QRコード | コピー＆ペースト用キー／ランダムキー |
 | :---: | :--- |
-| ![Pix QR Code](./img/pix.png) | **ランダムキー：**<br>`e87d773a-0b97-4410-8fc3-f7ec04cce6a2` |
+| ![Pix QR Code](https://raw.githubusercontent.com/AugustoVasques75/balloc/main/img/pix.png) | **ランダムキー：**<br>`e87d773a-0b97-4410-8fc3-f7ec04cce6a2` |
 
 ## ライセンス
 

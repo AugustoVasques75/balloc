@@ -1,5 +1,3 @@
-📦 **[NPM Package](https://www.npmjs.com/package/balloc)** | 🔗 **[GitHub](https://github.com/AugustoVasques75/balloc)**
-
 You can also find this documentation translated into other languages:
 | Idioma | Link |
 |---|---|
@@ -115,36 +113,36 @@ yarn add Balloc
 In HTML, use the unpkg CDN:
 
 ```text
-https://unpkg.com/Balloc
+[https://unpkg.com/Balloc](https://unpkg.com/Balloc)
 
 ```
 
 Or use its localized docstring versions for some languages:
 
 ```
-Arabic:    https://unpkg.com/Balloc/src/ar/Balloc.mjs
-English:   https://unpkg.com/Balloc/src/en/Balloc.mjs
-Spanish: https://unpkg.com/Balloc/src/es/Balloc.mjs
-Japanese:  https://unpkg.com/Balloc/src/jp/Balloc.mjs
-Chinese:   https://unpkg.com/Balloc/src/zh/Balloc.mjs
+Arabic:    [https://unpkg.com/Balloc/src/ar/Balloc.mjs](https://unpkg.com/Balloc/src/ar/Balloc.mjs)
+English:   [https://unpkg.com/Balloc/src/en/Balloc.mjs](https://unpkg.com/Balloc/src/en/Balloc.mjs)
+Spanish: [https://unpkg.com/Balloc/src/es/Balloc.mjs](https://unpkg.com/Balloc/src/es/Balloc.mjs)
+Japanese:  [https://unpkg.com/Balloc/src/jp/Balloc.mjs](https://unpkg.com/Balloc/src/jp/Balloc.mjs)
+Chinese:   [https://unpkg.com/Balloc/src/zh/Balloc.mjs](https://unpkg.com/Balloc/src/zh/Balloc.mjs)
 
 ```
 
 Ou ainda utilize o CDN jsDelivr:
 
 ```text
-https://cdn.jsdelivr.net/npm/Balloc
+[https://cdn.jsdelivr.net/npm/Balloc](https://cdn.jsdelivr.net/npm/Balloc)
 
 ```
 
 CDNs with localization support:
 
 ```
-Arabic:    https://cdn.jsdelivr.net/npm/Balloc/src/ar/Balloc.mjs
-English:   https://cdn.jsdelivr.net/npm/Balloc/src/en/Balloc.mjs
-Spanish: https://cdn.jsdelivr.net/npm/Balloc/src/es/Balloc.mjs
-Japanese:  https://cdn.jsdelivr.net/npm/Balloc/src/jp/Balloc.mjs
-Chinese:   https://cdn.jsdelivr.net/npm/Balloc/src/zh/Balloc.mjs
+Arabic:    [https://cdn.jsdelivr.net/npm/Balloc/src/ar/Balloc.mjs](https://cdn.jsdelivr.net/npm/Balloc/src/ar/Balloc.mjs)
+English:   [https://cdn.jsdelivr.net/npm/Balloc/src/en/Balloc.mjs](https://cdn.jsdelivr.net/npm/Balloc/src/en/Balloc.mjs)
+Spanish: [https://cdn.jsdelivr.net/npm/Balloc/src/es/Balloc.mjs](https://cdn.jsdelivr.net/npm/Balloc/src/es/Balloc.mjs)
+Japanese:  [https://cdn.jsdelivr.net/npm/Balloc/src/jp/Balloc.mjs](https://cdn.jsdelivr.net/npm/Balloc/src/jp/Balloc.mjs)
+Chinese:   [https://cdn.jsdelivr.net/npm/Balloc/src/zh/Balloc.mjs](https://cdn.jsdelivr.net/npm/Balloc/src/zh/Balloc.mjs)
 
 ```
 
@@ -306,7 +304,7 @@ The complete API documentation is available in the [`./docs`](./docs) directory 
 | Chinese | [./docs/API — balloc.zh.md](./docs/API%20—%20balloc.zh.md) |
 | Spanish | [./docs/API — balloc.es.md](./docs/API%20—%20balloc.es.md) |
 | English | [./docs/API — balloc.en.md](./docs/API%20—%20balloc.en.md) |
-| Japanese | [./docs/API — balloc.ja.md](./docs/API%20—%20balloc.ja.md) |
+| Japanese | [./docs/API — balloc.jp.md](./docs/API%20—%20balloc.jp.md) |
 | Portuguese | [./docs/API — balloc.pt.md](./docs/API%20—%20balloc.pt.md) |
 
 
@@ -353,6 +351,8 @@ The following is a summary of these groups:
 | API | Description |
 | --- | --- |
 | `has()` | Search for a value |
+| `indexOf()` | Search for a value (first match) |
+| `lastIndexOf()` | Search for a value (last match) |
 | `get()` | Read an element |
 | `set()` | Write an element |
 | `clear()` | Clear occupancy and fill the block |
@@ -360,6 +360,7 @@ The following is a summary of these groups:
 | `fillAll()` | Fill and occupy the entire block |
 | `put()` | Copy an array into a block |
 | `pick()` | Copy occupied elements out of a block |
+| `withView()` | Borrow a typed view over occupied elements |
 
 ### Block interchange
 
@@ -385,11 +386,31 @@ The following is a summary of these groups:
 | `byteSize()` | Physical block size in bytes |
 | `occupied()` | Number of occupied elements |
 | `length()` | Physical element capacity |
+| `isFull()` | Check whether the block is completely occupied |
 | `recycleCount()` | Number of recyclable regions |
 | `recycleBytes` | Currently recyclable bytes |
 | `allocatedBytes` | Bytes associated with non-recycled regions |
 | `unallocatedBytes` | Space remaining after the bump pointer |
 | `fragmentationRatio` | Recycled bytes / used heap area |
+
+### Borrowing memory with `withView()`
+
+`withView(handler, callback)` provides the callback with a `TypedArray` directly over the block's occupied region. The view is not a copy: changes made through it modify the block's contents. The callback is synchronous, receives the view as its only argument, and its return value is propagated by `withView()`.
+
+The view must not be retained or used after the callback finishes. If the callback returns a Promise, the borrow is released immediately when that Promise is returned; it is not held until the Promise settles. The lock is also released if the callback throws.
+
+While a block is borrowed, operations that directly modify it are blocked, including `push()`, `pop()`, `nudge()`, `pull()`, `set()`, `clear()`, `fill()`, `fillAll()`, `put()`, `realloc()`, `free()`, and copy operations that use it as the destination. `swap()` is also blocked if either block is borrowed. Read operations and operations that use the block only as a source remain allowed.
+
+Operations that replace or remap `dataBus`, such as `gc()` and bus growth triggered by `alloc()` or `realloc()`, are blocked while any view is active.
+
+Example:
+
+```js
+const result = memory.withView(handler, view => {
+    view[0] = 42;
+    return view.length;
+});
+```
 
 ### Internal functions
 
@@ -428,7 +449,7 @@ If you like this project and want to support its development:
 
 | Pix QR Code | Copy-and-Paste / Random Key |
 | :---: | :--- |
-| <img src="./img/pix.png" alt="Pix QR Code" width="200"> | **Random Key:**<br>`e87d773a-0b97-4410-8fc3-f7ec04cce6a2` |
+| ![Pix QR Code](https://raw.githubusercontent.com/AugustoVasques75/balloc/main/img/pix.png) | **Random Key:**<br>`e87d773a-0b97-4410-8fc3-f7ec04cce6a2` |
 
 ## License
 

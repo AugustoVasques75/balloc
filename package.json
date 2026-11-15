@@ -10,11 +10,17 @@
   "type": "module",
   "files": [
     "docs/",
-    "img/",
     "src/",
     "types/",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "README.ar.md",
+    "README.en.md",
+    "README.es.md",
+    "README.pt.md",
+    "README.jp.md",
+    "README.zh.md",
+    "change.log.md"
   ],
   "exports": {
     ".": {
@@ -73,6 +79,8 @@
     "memory",
     "CBOR",
     "allocator",
+    "arena",
+    "array-arena",
     "bump-allocation",
     "bump-allocator",
     "low-level",
@@ -84,7 +92,9 @@
     "cross-platform",
     "endianness",
     "malloc",
-    "data-structures"
+    "data-structures",
+    "SoA",
+    "AoS"
   ],
   "author": "Augusto Vasques",
   "license": "MIT",
