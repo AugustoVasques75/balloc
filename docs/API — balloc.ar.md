@@ -120,6 +120,29 @@ byteSize(handler)  → bytes físicos reservados
 
 ---
 
+## استعارة الذاكرة باستخدام `withView()`
+
+تمرر `withView(handler, callback)` إلى الدالة الراجعة عرضًا typed view مرتبطًا مباشرة بمنطقة البيانات المشغولة في الكتلة. يشمل العرض العناصر المشغولة فقط، ولا يشمل السعة غير المستخدمة، وليس نسخة؛ فالتغييرات التي تُجرى من خلاله تعدّل محتوى الكتلة مباشرة.
+
+تتم الاستعارة بصورة متزامنة. تتلقى الدالة الراجعة العرض بوصفه وسيطها الوحيد، وتُعاد القيمة التي تنتجها من `withView()`. يُحرر القفل داخل كتلة `finally`، حتى إذا أطلقت الدالة الراجعة استثناءً.
+
+```js
+const result = memory.withView(handler, view => {
+    view[0] = 42;
+    return view.length;
+});
+```
+
+يجب عدم الاحتفاظ بالعرض أو استخدامه بعد انتهاء الدالة الراجعة. إذا أعادت الدالة Promise، تنتهي الاستعارة فور إعادة الـPromise، ولا يستمر القفل حتى اكتمالها.
+
+### القيود أثناء الاستعارة
+
+تؤدي محاولة استدعاء `withView()` مرة ثانية للمقبض نفسه إلى إطلاق `Error`. كما تطلق العمليات التالية `Error` إذا كانت ستعدّل الكتلة المستعارة: `push()` و`pop()` و`nudge()` و`pull()` و`set()` و`clear()` و`fill()` و`fillAll()` و`put()` و`realloc()` و`free()` و`copyWithin()`. تُحظر `copy()` و`append()` عندما تكون الكتلة المستعارة هي الوجهة، كما تُحظر `swap()` إذا كانت أي من الكتلتين مستعارة.
+
+لا تُحظر عمليات القراءة. وفي `copy()` و`append()`، يمكن أن تكون كتلة المصدر مستعارة لأن هاتين العمليتين لا تعدّلان المصدر.
+
+تُحظر أيضًا العمليات التي تستبدل `dataBus` أو تعيد تعيين موضعه ما دامت أي مصفوفة نشطة، بما في ذلك `gc()` وتوسعة `dataBus` الناتجة عن `alloc()` أو `realloc()`.
+
 # 1. التهيئة (Instantiation)
 
 ## `new Balloc(size, bucketSize, metadataSize)`
@@ -535,6 +558,14 @@ boolean
 
 ---
 
+## `indexOf(handler, searchElement, fromIndex = 0)`
+
+البحث عن أول ظهور لقيمة. The search proceeds in ascending index order and considers only occupied elements, ignoring unused block capacity.
+
+## `lastIndexOf(handler, searchElement, fromIndex = -1)`
+
+البحث عن آخر ظهور لقيمة. The search proceeds in descending index order and considers only occupied elements, ignoring unused block capacity.
+
 ## `get(handler, index)`
 
 يحصل على العنصر في الفهرس المحدد.
@@ -749,6 +780,11 @@ const count = memory.occupied(handler);
 ---
 
 ## `length(handler)`
+
+### `isFull(handler)`
+
+التحقق مما إذا كانت الكتلة مشغولة بالكامل. Returns `true` when the number of occupied elements equals the block's physical capacity; otherwise returns `false`.
+
 
 يرجع الكمية الإجمالية للفتحات الفيزيائية المتاحة.
 
