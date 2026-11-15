@@ -490,4 +490,192 @@ describe("Balloc", () => {
             expect(memory.recycleCount()).toBe(1);
         });
     });
+
+
+    describe("busca", () => {
+        it("indexOf localiza a primeira ocorrência entre os elementos ocupados", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(8);
+
+            memory.put(handler, [10, 20, 10, 30]);
+
+            expect(memory.indexOf(handler, 10)).toBe(0);
+            expect(memory.indexOf(handler, 20)).toBe(1);
+            expect(memory.indexOf(handler, 10, 1)).toBe(2);
+            expect(memory.indexOf(handler, 30)).toBe(3);
+            expect(memory.indexOf(handler, 99)).toBe(-1);
+        });
+
+        it("indexOf respeita fromIndex e a semântica de índices negativos", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(8);
+
+            memory.put(handler, [10, 20, 10, 30]);
+
+            expect(memory.indexOf(handler, 10, 2)).toBe(2);
+            expect(memory.indexOf(handler, 10, 3)).toBe(-1);
+            expect(memory.indexOf(handler, 10, -2)).toBe(2);
+            expect(memory.indexOf(handler, 10, -1)).toBe(-1);
+            expect(memory.indexOf(handler, 10, 8)).toBe(-1);
+        });
+
+        it("indexOf ignora posições não ocupadas", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(8);
+
+            memory.put(handler, [10, 20, 30]);
+            memory.dataBus[7] = 99;
+
+            expect(memory.indexOf(handler, 99)).toBe(-1);
+            expect(memory.indexOf(handler, 30)).toBe(2);
+        });
+
+        it("indexOf retorna -1 quando o bloco está vazio", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(4);
+
+            expect(memory.indexOf(handler, 10)).toBe(-1);
+        });
+
+        it("lastIndexOf localiza a última ocorrência entre os elementos ocupados", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(8);
+
+            memory.put(handler, [10, 20, 10, 30, 10]);
+
+            expect(memory.lastIndexOf(handler, 10)).toBe(4);
+            expect(memory.lastIndexOf(handler, 20)).toBe(1);
+            expect(memory.lastIndexOf(handler, 30)).toBe(3);
+            expect(memory.lastIndexOf(handler, 99)).toBe(-1);
+        });
+
+        it("lastIndexOf respeita fromIndex e a semântica de índices negativos", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(8);
+
+            memory.put(handler, [10, 20, 10, 30, 10]);
+
+            expect(memory.lastIndexOf(handler, 10, 3)).toBe(2);
+            expect(memory.lastIndexOf(handler, 10, 1)).toBe(0);
+            expect(memory.lastIndexOf(handler, 10, -2)).toBe(2);
+            expect(memory.lastIndexOf(handler, 10, -3)).toBe(2);
+            expect(memory.lastIndexOf(handler, 10, -5)).toBe(0);
+            expect(memory.lastIndexOf(handler, 10, -6)).toBe(-1);
+        });
+
+        it("lastIndexOf ignora posições não ocupadas", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(8);
+
+            memory.put(handler, [10, 20, 30]);
+            memory.dataBus[7] = 99;
+
+            expect(memory.lastIndexOf(handler, 99)).toBe(-1);
+            expect(memory.lastIndexOf(handler, 30)).toBe(2);
+        });
+
+        it("lastIndexOf retorna -1 quando o bloco está vazio", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(4);
+
+            expect(memory.lastIndexOf(handler, 10)).toBe(-1);
+        });
+
+        it("indexOf e lastIndexOf preservam a semântica de BigInt", () => {
+            const memory = new Balloc(64, "64u");
+            const handler = memory.alloc(8);
+
+            memory.put(handler, [10n, 20n, 10n, 30n]);
+
+            expect(memory.indexOf(handler, 10n)).toBe(0);
+            expect(memory.indexOf(handler, 10n, 1)).toBe(2);
+            expect(memory.lastIndexOf(handler, 10n)).toBe(2);
+            expect(memory.lastIndexOf(handler, 10n, 1)).toBe(0);
+            expect(memory.indexOf(handler, 10)).toBe(-1);
+        });
+
+        it("indexOf e lastIndexOf rejeitam handlers inválidos", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(4);
+
+            memory.free(handler);
+
+            expect(() => memory.indexOf(handler, 10)).toThrow();
+            expect(() => memory.lastIndexOf(handler, 10)).toThrow();
+        });
+    });
+
+    describe("isFull", () => {
+        it("retorna false para blocos vazios e parcialmente ocupados", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(4);
+
+            expect(memory.isFull(handler)).toBe(false);
+
+            memory.push(handler, 10);
+            expect(memory.isFull(handler)).toBe(false);
+
+            memory.push(handler, 20);
+            expect(memory.isFull(handler)).toBe(false);
+        });
+
+        it("retorna true quando todos os slots estão ocupados", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(4);
+
+            memory.fillAll(handler, 7);
+
+            expect(memory.occupied(handler)).toBe(memory.length(handler));
+            expect(memory.isFull(handler)).toBe(true);
+        });
+
+        it("retorna false novamente após a remoção de um elemento", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(4);
+
+            memory.fillAll(handler, 7);
+            expect(memory.isFull(handler)).toBe(true);
+
+            memory.pop(handler);
+
+            expect(memory.isFull(handler)).toBe(false);
+        });
+
+        it("retorna false após limpar um bloco cheio", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(4);
+
+            memory.fillAll(handler, 7);
+            expect(memory.isFull(handler)).toBe(true);
+
+            memory.clear(handler);
+
+            expect(memory.occupied(handler)).toBe(0);
+            expect(memory.isFull(handler)).toBe(false);
+        });
+
+        it("acompanha a capacidade após realloc", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(2);
+
+            memory.fillAll(handler, 7);
+            expect(memory.isFull(handler)).toBe(true);
+
+            memory.realloc(handler);
+
+            expect(memory.length(handler)).toBe(4);
+            expect(memory.occupied(handler)).toBe(2);
+            expect(memory.isFull(handler)).toBe(false);
+        });
+
+        it("rejeita handlers inválidos", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(4);
+
+            memory.free(handler);
+
+            expect(() => memory.isFull(handler)).toThrow();
+        });
+    });
+
 });
