@@ -90,6 +90,29 @@ byteSize(handler)  → 予約済みの物理バイト数
 
 ---
 
+## `withView()` によるメモリの借用
+
+`withView(handler, callback)` は、ブロックの使用中データ領域に直接対応する型付きビューをコールバックに渡します。このビューには使用中の要素のみが含まれ、未使用の容量は含まれません。また、コピーではないため、ビューを通じた変更はブロックの内容に直ちに反映されます。
+
+借用は同期的に行われます。コールバックはビューのみを引数として受け取り、その戻り値は `withView()` から返されます。コールバックが例外を送出した場合も含め、ロックは `finally` ブロックで解除されます。
+
+```js
+const result = memory.withView(handler, view => {
+    view[0] = 42;
+    return view.length;
+});
+```
+
+コールバックの終了後にビューを保持したり使用したりしてはいけません。コールバックがPromiseを返した場合、借用はPromiseが返された時点で終了し、Promiseの解決までは継続しません。
+
+### 借用中の制限
+
+同じhandlerに対して `withView()` を再度呼び出すと `Error` が送出されます。また、借用中のブロックを変更する次の操作も `Error` を送出します：`push()`、`pop()`、`nudge()`、`pull()`、`set()`、`clear()`、`fill()`、`fillAll()`、`put()`、`realloc()`、`free()`、`copyWithin()`。借用中のブロックがコピー先となる場合、`copy()` と `append()` も禁止されます。いずれかのブロックが借用中の場合、`swap()` も禁止されます。
+
+読み取り操作は禁止されません。`copy()` と `append()` ではコピー元を変更しないため、コピー元ブロックの借用は許可されます。
+
+アクティブなビューが存在する間は、`gc()` や `alloc()`／`realloc()` による `dataBus` の拡張を含め、`dataBus` を置き換えたり再マッピングしたりする操作も禁止されます。
+
 # 1. インスタンス化
 
 ## `new Balloc(size, bucketSize, metadataSize)`
@@ -421,6 +444,14 @@ if (memory.has(handler, 42)) {
 boolean
 ```
 
+## `indexOf(handler, searchElement, fromIndex = 0)`
+
+値が最初に現れる位置を検索する. The search proceeds in ascending index order and considers only occupied elements, ignoring unused block capacity.
+
+## `lastIndexOf(handler, searchElement, fromIndex = -1)`
+
+値が最後に現れる位置を検索する. The search proceeds in descending index order and considers only occupied elements, ignoring unused block capacity.
+
 ## `get(handler, index)`
 
 指定されたインデックスの要素を取得します。
@@ -588,6 +619,11 @@ const count = memory.occupied(handler);
 ```
 
 ## `length(handler)`
+
+### `isFull(handler)`
+
+ブロックが完全に使用中か確認する. Returns `true` when the number of occupied elements equals the block's physical capacity; otherwise returns `false`.
+
 
 使用可能な物理スロットの総数を返します。
 
