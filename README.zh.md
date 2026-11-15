@@ -323,8 +323,8 @@ API 方法按功能归为以下类别：
 | API | 说明 |
 |---|---|
 | `has()` | 搜索指定值 |
-| `indexOf()` | 搜索指定值 (first match) |
-| `lastIndexOf()` | 搜索指定值 (last match) |
+| `indexOf()` | 查找值首次出现的位置 |
+| `lastIndexOf()` | 查找值最后一次出现的位置 |
 | `get()` | 读取元素 |
 | `set()` | 写入元素 |
 | `clear()` | 清除占用状态并填充数据块 |
