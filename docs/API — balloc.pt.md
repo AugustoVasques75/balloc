@@ -45,6 +45,8 @@ Balloc
 │
 ├── Acesso ao conteúdo
 │   ├── has()
+│   ├── indexOf()
+│   ├── lastIndexOf()
 │   ├── get()
 │   ├── set()
 │   ├── clear()
@@ -53,10 +55,13 @@ Balloc
 │   ├── put()
 │   └── pick()
 │
+│
 ├── Capacidade e ocupação
 │   ├── byteSize()
 │   ├── occupied()
-│   └── length()
+│   ├── length()
+│   └── isFull()
+│
 │
 ├── Operações entre blocos
 │   ├── copy()
@@ -475,6 +480,80 @@ boolean
 
 ---
 
+### `indexOf(handler, searchElement, fromIndex = 0)`
+
+Localiza a primeira ocorrência de um elemento na sequência ocupada do bloco.
+
+A busca é realizada em ordem crescente de índices, utilizando a operação `indexOf` do TypedArray subjacente. A pesquisa considera exclusivamente os elementos ocupados, ignorando a capacidade não utilizada do bloco.
+
+A posição inicial da busca pode ser especificada por `fromIndex`, seguindo as regras de indexação de TypedArray.
+
+```
+const index = memory.indexOf(handler, 42);
+const nextIndex = memory.indexOf(handler, 42, 3);
+```
+
+**Parâmetros**
+
+| Parâmetro       | Tipo                | Padrão | Descrição                                      |
+| --------------- | ------------------- | ------ | ---------------------------------------------- |
+| `handler`       | `number`            | —      | Handler do bloco.                              |
+| `searchElement` | `number \\| bigint` | —      | Elemento a ser localizado.                     |
+| `fromIndex`     | `number`            | `0`    | Índice a partir do qual a busca será iniciada. |
+
+**Retorno**
+
+```
+number
+```
+
+- Índice da primeira ocorrência.
+- `-1` — elemento não encontrado ou bloco vazio.
+
+O índice retornado é relativo ao início da sequência ocupada, não à posição absoluta no `dataBus`.
+
+**Exceções**
+
+\- `Error` — handler inválido ou corrompido.
+
+### `lastIndexOf(handler, searchElement, fromIndex = -1)`
+
+Localiza a última ocorrência de um elemento na sequência ocupada do bloco.
+
+A busca é realizada em ordem decrescente de índices, utilizando a operação `lastIndexOf` do TypedArray subjacente. A pesquisa considera exclusivamente os elementos ocupados, ignorando a capacidade não utilizada do bloco.
+
+A posição inicial da busca pode ser especificada por `fromIndex`, seguindo as regras de indexação de TypedArray. Por padrão, a busca começa no último elemento ocupado.
+
+```
+const index = memory.lastIndexOf(handler, 42);
+const previousIndex = memory.lastIndexOf(handler, 42, 5);
+```
+
+**Parâmetros**
+
+| Parâmetro       | Tipo                | Padrão | Descrição                                      |
+| --------------- | ------------------- | ------ | ---------------------------------------------- |
+| `handler`       | `number`            | —      | Handler do bloco.                              |
+| `searchElement` | `number \\| bigint` | —      | Elemento a ser localizado.                     |
+| `fromIndex`     | `number`            | `-1`   | Índice a partir do qual a busca será iniciada. |
+
+**Retorno**
+
+```
+number
+```
+
+- Índice da última ocorrência.
+- `-1` — elemento não encontrado ou bloco vazio.
+
+O índice retornado é relativo ao início da sequência ocupada, não à posição absoluta no `dataBus`.
+
+**Exceções**
+
+\- `Error` — handler inválido ou corrompido.
+
+---
+
 ## `get(handler, index)`
 
 Obtém o elemento no índice especificado.
@@ -672,6 +751,39 @@ length >= occupied
 ```js
 const capacity = memory.length(handler);
 ```
+
+---
+
+### `isFull(handler)`
+
+Verifica se o bloco de memória atingiu sua capacidade de alocação.
+
+Um bloco é considerado cheio quando a quantidade de elementos ocupados é igual à sua capacidade total alocada, não restando posições disponíveis para armazenar novos elementos.
+
+```
+if (memory.isFull(handler)) {
+    // Bloco sem posições disponíveis.
+}
+```
+
+**Parâmetros**
+
+| Parâmetro | Tipo     | Descrição         |
+| --------- | -------- | ----------------- |
+| `handler` | `number` | Handler do bloco. |
+
+**Retorno**
+
+```
+boolean
+```
+
+- `true` — bloco completamente ocupado.
+- `false` — bloco ainda possui posições disponíveis.
+
+**Exceções**
+
+\- `Error` — handler inválido ou corrompido.
 
 ---
 
@@ -1177,6 +1289,8 @@ A geração participa da validação por cookie. Consequentemente, um handler in
 | Queue | `pull()` | `number | undefined`<br> |
 | Queue | `head()` | `number | undefined`<br> |
 | Acesso | `has()` | `boolean`<br> |
+| Acesso | `indexOf()` | `number` |
+| Acesso | `lastIndexOf()` | `number` |
 | Acesso | `get()` | `number | undefined`<br> |
 | Acesso | `set()` | `boolean`<br> |
 | Acesso | `clear()` | `void`<br> |
@@ -1187,6 +1301,7 @@ A geração participa da validação por cookie. Consequentemente, um handler in
 | Capacidade | `byteSize()` | `number`<br> |
 | Capacidade | `occupied()` | `number`<br> |
 | Capacidade | `length()` | `number`<br> |
+| Capacidade | `isFull()` | `boolean` |
 | Blocos | `copy()` | `Uint8Array`<br> |
 | Blocos | `copyWithin()` | `Uint8Array`<br> |
 | Blocos | `append()` | `number`<br> |
