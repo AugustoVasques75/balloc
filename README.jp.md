@@ -277,7 +277,7 @@ APIの完全なドキュメントは[`./docs`](./docs)フォルダーにあり�
 | 中国語 | [./docs/API — balloc.zh.md](./docs/API%20—%20balloc.zh.md) |
 | スペイン語 | [./docs/API — balloc.es.md](./docs/API%20—%20balloc.es.md) |
 | 英語 | [./docs/API — balloc.en.md](./docs/API%20—%20balloc.en.md) |
-| 日本語 | [./docs/API — balloc.ja.md](./docs/API%20—%20balloc.ja.md) |
+| 日本語 | [./docs/API — balloc.jp.md](./docs/API%20—%20balloc.jp.md) |
 | ポルトガル語 | [./docs/API — balloc.pt.md](./docs/API%20—%20balloc.pt.md) |
 
 APIメソッドは機能ごとに次のグループに分類されています。
