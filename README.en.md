@@ -304,7 +304,7 @@ The complete API documentation is available in the [`./docs`](./docs) directory 
 | Chinese | [./docs/API — balloc.zh.md](./docs/API%20—%20balloc.zh.md) |
 | Spanish | [./docs/API — balloc.es.md](./docs/API%20—%20balloc.es.md) |
 | English | [./docs/API — balloc.en.md](./docs/API%20—%20balloc.en.md) |
-| Japanese | [./docs/API — balloc.ja.md](./docs/API%20—%20balloc.ja.md) |
+| Japanese | [./docs/API — balloc.jp.md](./docs/API%20—%20balloc.jp.md) |
 | Portuguese | [./docs/API — balloc.pt.md](./docs/API%20—%20balloc.pt.md) |
 
 
