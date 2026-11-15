@@ -2,6 +2,10 @@
   "name": "balloc",
   "version": "1.2.0",
   "homepage": "https://github.com/AugustoVasques75/balloc",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AugustoVasques75/balloc.git"
+  },
   "description": "Bump allocation memory allocator",
   "main": "./src/en/balloc.mjs",
   "unpkg": "./src/en/balloc.js",
@@ -13,7 +17,7 @@
     "src/",
     "types/",
     "LICENSE",
-    "README.md",
+    "README.MD",
     "README.ar.md",
     "README.en.md",
     "README.es.md",
