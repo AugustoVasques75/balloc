@@ -317,6 +317,43 @@ export default class Balloc {
      */
     has(handler: number, value: number): boolean;
     /**
+     * Localiza a primeira ocorrência de um elemento na sequência ocupada do bloco.
+     *
+     * A busca é realizada em ordem crescente de índices, utilizando a operação
+     * `indexOf` do TypedArray subjacente. A pesquisa considera exclusivamente
+     * os elementos ocupados, ignorando a capacidade não utilizada do bloco.
+     *
+     * A posição inicial da busca pode ser especificada por `fromIndex`,
+     * seguindo as regras de indexação de TypedArray.
+     *
+     * @param {number} handler - Handler do bloco.
+     * @param {number|bigint} searchElement - Elemento a ser localizado.
+     * @param {number} [fromIndex=0] - Índice a partir do qual a busca será iniciada.
+     * @returns {number} Índice da primeira ocorrência ou `-1` se o
+     * elemento não for encontrado ou se o bloco estiver vazio.
+     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     */
+    indexOf(handler: number, searchElement: number | bigint, fromIndex?: number): number;
+    /**
+     * Localiza a última ocorrência de um elemento na sequência ocupada do bloco.
+     *
+     * A busca é realizada em ordem decrescente de índices, utilizando a operação
+     * `lastIndexOf` do TypedArray subjacente. A pesquisa considera exclusivamente
+     * os elementos ocupados, ignorando a capacidade não utilizada do bloco.
+     *
+     * A posição inicial da busca pode ser especificada por `fromIndex`,
+     * seguindo as regras de indexação de TypedArray. Por padrão, a busca começa
+     * no último elemento ocupado.
+     *
+     * @param {number} handler - Handler do bloco.
+     * @param {number|bigint} searchElement - Elemento a ser localizado.
+     * @param {number} [fromIndex=-1] - Índice a partir do qual a busca será iniciada.
+     * @returns {number} Índice da última ocorrência ou `-1` se o
+     * elemento não for encontrado ou se o bloco estiver vazio.
+     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     */
+    lastIndexOf(handler: number, searchElement: number | bigint, fromIndex?: number): number;
+    /**
     * Retorna o elemento ocupado em um índice baseado em zero.
     *
     * Índices fora do intervalo `[0, occupied)` não são considerados erro e

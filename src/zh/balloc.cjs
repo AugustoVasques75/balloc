@@ -483,6 +483,53 @@ var Balloc = class {
     return this.auxiliary.subarray(rawAddres, rawAddres + meta.occupied).includes(value);
   }
   /**
+   * 在块的已占用序列中查找元素第一次出现的位置。
+   *
+   * 搜索按照索引升序进行，使用底层 TypedArray 的
+   * `indexOf` 操作。搜索范围仅限于已占用的元素，
+   * 不包括块中尚未使用的容量。
+   *
+   * 可以通过 `fromIndex` 指定搜索的起始位置，
+   * 并遵循 TypedArray 的索引规则。
+   *
+   * @param {number} handler - 块的句柄。
+   * @param {number|bigint} searchElement - 要查找的元素。
+   * @param {number} [fromIndex=0] - 开始搜索的索引。
+   * @returns {number} 第一次出现的位置索引；如果未找到该元素
+   * 或块为空，则返回 `-1`。
+   * @throws {Error} 如果句柄无效或已损坏。
+   */
+  indexOf(handler, searchElement, fromIndex = 0) {
+    const meta = this.extractMetadata(handler, this.metadata);
+    if (meta.occupied === 0) return -1;
+    const rawAddres = meta.dataAddress >>> this.wordShift;
+    return this.auxiliary.subarray(rawAddres, rawAddres + meta.occupied).indexOf(searchElement, fromIndex);
+  }
+  /**
+   * 在块的已占用序列中查找元素最后一次出现的位置。
+   *
+   * 搜索按照索引降序进行，使用底层 TypedArray 的
+   * `lastIndexOf` 操作。搜索范围仅限于已占用的元素，
+   * 不包括块中尚未使用的容量。
+   *
+   * 可以通过 `fromIndex` 指定搜索的起始位置，
+   * 并遵循 TypedArray 的索引规则。默认情况下，
+   * 搜索从最后一个已占用元素开始。
+   *
+   * @param {number} handler - 块的句柄。
+   * @param {number|bigint} searchElement - 要查找的元素。
+   * @param {number} [fromIndex=-1] - 开始搜索的索引。
+   * @returns {number} 最后一次出现的位置索引；如果未找到该元素
+   * 或块为空，则返回 `-1`。
+   * @throws {Error} 如果句柄无效或已损坏。
+   */
+  lastIndexOf(handler, searchElement, fromIndex = -1) {
+    const meta = this.extractMetadata(handler, this.metadata);
+    if (meta.occupied === 0) return -1;
+    const rawAddres = meta.dataAddress >>> this.wordShift;
+    return this.auxiliary.subarray(rawAddres, rawAddres + meta.occupied).lastIndexOf(searchElement, fromIndex);
+  }
+  /**
   * 返回基于零的索引处的占用元素。
   *
   * 超出范围 `[0, occupied)` 的索引不被视为错误，会返回 `undefined`。

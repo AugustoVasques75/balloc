@@ -518,6 +518,53 @@ var Balloc = class {
     return this.auxiliary.subarray(rawAddres, rawAddres + meta.occupied).includes(value);
   }
   /**
+   * Locates the first occurrence of an element in the block's occupied sequence.
+   *
+   * The search is performed in ascending index order, using the underlying
+   * TypedArray's `indexOf` operation. The search considers only occupied
+   * elements, ignoring the block's unused capacity.
+   *
+   * The starting search position can be specified through `fromIndex`,
+   * following the TypedArray indexing rules.
+   *
+   * @param {number} handler - Block handler.
+   * @param {number|bigint} searchElement - Element to locate.
+   * @param {number} [fromIndex=0] - Index at which the search begins.
+   * @returns {number} Index of the first occurrence, or `-1` if the
+   * element is not found or the block is empty.
+   * @throws {Error} If the handler is invalid or corrupted.
+   */
+  indexOf(handler, searchElement, fromIndex = 0) {
+    const meta = this.extractMetadata(handler, this.metadata);
+    if (meta.occupied === 0) return -1;
+    const rawAddres = meta.dataAddress >>> this.wordShift;
+    return this.auxiliary.subarray(rawAddres, rawAddres + meta.occupied).indexOf(searchElement, fromIndex);
+  }
+  /**
+   * Locates the last occurrence of an element in the block's occupied sequence.
+   *
+   * The search is performed in descending index order, using the underlying
+   * TypedArray's `lastIndexOf` operation. The search considers only occupied
+   * elements, ignoring the block's unused capacity.
+   *
+   * The starting search position can be specified through `fromIndex`,
+   * following the TypedArray indexing rules. By default, the search starts
+   * at the last occupied element.
+   *
+   * @param {number} handler - Block handler.
+   * @param {number|bigint} searchElement - Element to locate.
+   * @param {number} [fromIndex=-1] - Index at which the search begins.
+   * @returns {number} Index of the last occurrence, or `-1` if the
+   * element is not found or the block is empty.
+   * @throws {Error} If the handler is invalid or corrupted.
+   */
+  lastIndexOf(handler, searchElement, fromIndex = -1) {
+    const meta = this.extractMetadata(handler, this.metadata);
+    if (meta.occupied === 0) return -1;
+    const rawAddres = meta.dataAddress >>> this.wordShift;
+    return this.auxiliary.subarray(rawAddres, rawAddres + meta.occupied).lastIndexOf(searchElement, fromIndex);
+  }
+  /**
   * Returns the occupied element at a zero-based index.
   *
   * Indices outside the range `[0, occupied)` are not considered an error and

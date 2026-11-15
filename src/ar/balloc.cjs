@@ -510,6 +510,53 @@ var Balloc = class {
     return this.auxiliary.subarray(rawAddres, rawAddres + meta.occupied).includes(value);
   }
   /**
+   * يعثر على أول ظهور لعنصر في التسلسل المشغول للكتلة.
+   *
+   * يتم إجراء البحث بترتيب تصاعدي للفهرسة، باستخدام العملية
+   * `indexOf` الخاصة بـ TypedArray الأساسي. يقتصر البحث حصريًا
+   * على العناصر المشغولة، مع تجاهل السعة غير المستخدمة للكتلة.
+   *
+   * يمكن تحديد موضع بدء البحث باستخدام `fromIndex`،
+   * وفقًا لقواعد الفهرسة الخاصة بـ TypedArray.
+   *
+   * @param {number} handler - معرّف الكتلة.
+   * @param {number|bigint} searchElement - العنصر المطلوب العثور عليه.
+   * @param {number} [fromIndex=0] - الفهرس الذي يبدأ منه البحث.
+   * @returns {number} فهرس أول ظهور، أو `-1` إذا لم يتم العثور
+   * على العنصر أو إذا كانت الكتلة فارغة.
+   * @throws {Error} إذا كان معرّف الكتلة غير صالح أو تالفًا.
+   */
+  indexOf(handler, searchElement, fromIndex = 0) {
+    const meta = this.extractMetadata(handler, this.metadata);
+    if (meta.occupied === 0) return -1;
+    const rawAddres = meta.dataAddress >>> this.wordShift;
+    return this.auxiliary.subarray(rawAddres, rawAddres + meta.occupied).indexOf(searchElement, fromIndex);
+  }
+  /**
+   * يعثر على آخر ظهور لعنصر في التسلسل المشغول للكتلة.
+   *
+   * يتم إجراء البحث بترتيب تنازلي للفهرسة، باستخدام العملية
+   * `lastIndexOf` الخاصة بـ TypedArray الأساسي. يقتصر البحث حصريًا
+   * على العناصر المشغولة، مع تجاهل السعة غير المستخدمة للكتلة.
+   *
+   * يمكن تحديد موضع بدء البحث باستخدام `fromIndex`،
+   * وفقًا لقواعد الفهرسة الخاصة بـ TypedArray. افتراضيًا،
+   * يبدأ البحث من آخر عنصر مشغول.
+   *
+   * @param {number} handler - معرّف الكتلة.
+   * @param {number|bigint} searchElement - العنصر المطلوب العثور عليه.
+   * @param {number} [fromIndex=-1] - الفهرس الذي يبدأ منه البحث.
+   * @returns {number} فهرس آخر ظهور، أو `-1` إذا لم يتم العثور
+   * على العنصر أو إذا كانت الكتلة فارغة.
+   * @throws {Error} إذا كان معرّف الكتلة غير صالح أو تالفًا.
+   */
+  lastIndexOf(handler, searchElement, fromIndex = -1) {
+    const meta = this.extractMetadata(handler, this.metadata);
+    if (meta.occupied === 0) return -1;
+    const rawAddres = meta.dataAddress >>> this.wordShift;
+    return this.auxiliary.subarray(rawAddres, rawAddres + meta.occupied).lastIndexOf(searchElement, fromIndex);
+  }
+  /**
   * يُرجع العنصر المشغول عند فهرس يعتمد على الصفر (zero-based index).
   *
   * الفهارس خارج النطاق `[0, occupied)` لا تُعتبر خطأ و

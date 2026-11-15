@@ -312,6 +312,43 @@ export default class Balloc {
      */
     has(handler: number, value: number): boolean;
     /**
+     * Locates the first occurrence of an element in the block's occupied sequence.
+     *
+     * The search is performed in ascending index order, using the underlying
+     * TypedArray's `indexOf` operation. The search considers only occupied
+     * elements, ignoring the block's unused capacity.
+     *
+     * The starting search position can be specified through `fromIndex`,
+     * following the TypedArray indexing rules.
+     *
+     * @param {number} handler - Block handler.
+     * @param {number|bigint} searchElement - Element to locate.
+     * @param {number} [fromIndex=0] - Index at which the search begins.
+     * @returns {number} Index of the first occurrence, or `-1` if the
+     * element is not found or the block is empty.
+     * @throws {Error} If the handler is invalid or corrupted.
+     */
+    indexOf(handler: number, searchElement: number | bigint, fromIndex?: number): number;
+    /**
+     * Locates the last occurrence of an element in the block's occupied sequence.
+     *
+     * The search is performed in descending index order, using the underlying
+     * TypedArray's `lastIndexOf` operation. The search considers only occupied
+     * elements, ignoring the block's unused capacity.
+     *
+     * The starting search position can be specified through `fromIndex`,
+     * following the TypedArray indexing rules. By default, the search starts
+     * at the last occupied element.
+     *
+     * @param {number} handler - Block handler.
+     * @param {number|bigint} searchElement - Element to locate.
+     * @param {number} [fromIndex=-1] - Index at which the search begins.
+     * @returns {number} Index of the last occurrence, or `-1` if the
+     * element is not found or the block is empty.
+     * @throws {Error} If the handler is invalid or corrupted.
+     */
+    lastIndexOf(handler: number, searchElement: number | bigint, fromIndex?: number): number;
+    /**
     * Returns the occupied element at a zero-based index.
     *
     * Indices outside the range `[0, occupied)` are not considered an error and

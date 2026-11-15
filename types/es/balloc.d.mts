@@ -316,6 +316,43 @@ export default class Balloc {
      */
     has(handler: number, value: number): boolean;
     /**
+     * Localiza la primera aparición de un elemento en la secuencia ocupada del bloque.
+     *
+     * La búsqueda se realiza en orden ascendente de índices, utilizando la operación
+     * `indexOf` del TypedArray subyacente. La búsqueda considera exclusivamente
+     * los elementos ocupados, ignorando la capacidad no utilizada del bloque.
+     *
+     * La posición inicial de la búsqueda puede especificarse mediante `fromIndex`,
+     * siguiendo las reglas de indexación de TypedArray.
+     *
+     * @param {number} handler - Identificador del bloque.
+     * @param {number|bigint} searchElement - Elemento que se desea localizar.
+     * @param {number} [fromIndex=0] - Índice a partir del cual comienza la búsqueda.
+     * @returns {number} Índice de la primera aparición o `-1` si el
+     * elemento no se encuentra o si el bloque está vacío.
+     * @throws {Error} Si el identificador del bloque no es válido o está corrupto.
+     */
+    indexOf(handler: number, searchElement: number | bigint, fromIndex?: number): number;
+    /**
+     * Localiza la última aparición de un elemento en la secuencia ocupada del bloque.
+     *
+     * La búsqueda se realiza en orden descendente de índices, utilizando la operación
+     * `lastIndexOf` del TypedArray subyacente. La búsqueda considera exclusivamente
+     * los elementos ocupados, ignorando la capacidad no utilizada del bloque.
+     *
+     * La posición inicial de la búsqueda puede especificarse mediante `fromIndex`,
+     * siguiendo las reglas de indexación de TypedArray. De forma predeterminada,
+     * la búsqueda comienza en el último elemento ocupado.
+     *
+     * @param {number} handler - Identificador del bloque.
+     * @param {number|bigint} searchElement - Elemento que se desea localizar.
+     * @param {number} [fromIndex=-1] - Índice a partir del cual comienza la búsqueda.
+     * @returns {number} Índice de la última aparición o `-1` si el
+     * elemento no se encuentra o si el bloque está vacío.
+     * @throws {Error} Si el identificador del bloque no es válido o está corrupto.
+     */
+    lastIndexOf(handler: number, searchElement: number | bigint, fromIndex?: number): number;
+    /**
     * Devuelve el elemento ocupado en un índice basado en cero.
     *
     * Los índices fuera del rango `[0, occupied)` no se consideran un error y

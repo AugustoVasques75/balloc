@@ -638,6 +638,62 @@ export default class Balloc {
         return this.auxiliary.subarray(rawAddres, rawAddres + meta.occupied).includes(value);
     }
 
+    /**
+     * ブロックの使用中シーケンス内で、要素の最初の出現位置を検索します。
+     *
+     * 検索はインデックスの昇順で実行され、基盤となる TypedArray の
+     * `indexOf` 操作を使用します。検索対象は使用中の要素に限定され、
+     * ブロックの未使用容量は無視されます。
+     *
+     * 検索開始位置は `fromIndex` で指定できます。
+     * TypedArray のインデックス規則に従います。
+     *
+     * @param {number} handler - ブロックのハンドラー。
+     * @param {number|bigint} searchElement - 検索する要素。
+     * @param {number} [fromIndex=0] - 検索を開始するインデックス。
+     * @returns {number} 最初に一致した要素のインデックス。
+     * 要素が見つからない場合、またはブロックが空の場合は `-1`。
+     * @throws {Error} ハンドラーが無効または破損している場合。
+     */
+    indexOf(handler, searchElement, fromIndex=0) {
+        const meta = this.extractMetadata(handler, this.metadata);
+
+        if (meta.occupied === 0) return -1;
+
+        const rawAddres = meta.dataAddress >>> this.wordShift;
+
+        return this.auxiliary.subarray(rawAddres, rawAddres + meta.occupied).indexOf(searchElement, fromIndex);
+    }
+
+    /**
+     * ブロックの使用中シーケンス内で、要素の最後の出現位置を検索します。
+     *
+     * 検索はインデックスの降順で実行され、基盤となる TypedArray の
+     * `lastIndexOf` 操作を使用します。検索対象は使用中の要素に限定され、
+     * ブロックの未使用容量は無視されます。
+     *
+     * 検索開始位置は `fromIndex` で指定できます。
+     * TypedArray のインデックス規則に従います。デフォルトでは、
+     * 最後の使用中要素から検索を開始します。
+     *
+     * @param {number} handler - ブロックのハンドラー。
+     * @param {number|bigint} searchElement - 検索する要素。
+     * @param {number} [fromIndex=-1] - 検索を開始するインデックス。
+     * @returns {number} 最後に一致した要素のインデックス。
+     * 要素が見つからない場合、またはブロックが空の場合は `-1`。
+     * @throws {Error} ハンドラーが無効または破損している場合。
+     */
+    lastIndexOf(handler, searchElement, fromIndex=-1) {
+        const meta = this.extractMetadata(handler, this.metadata);
+
+        if (meta.occupied === 0) return -1;
+
+        const rawAddres = meta.dataAddress >>> this.wordShift;
+
+        return this.auxiliary.subarray(rawAddres, rawAddres + meta.occupied).lastIndexOf(searchElement, fromIndex);
+    }
+
+
      /**
      * 0から始まるインデックスを指定して、占有されている要素を返します。
      *

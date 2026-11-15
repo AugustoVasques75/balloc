@@ -304,6 +304,43 @@ export default class Balloc {
      */
     has(handler: number, value: number): boolean;
     /**
+     * يعثر على أول ظهور لعنصر في التسلسل المشغول للكتلة.
+     *
+     * يتم إجراء البحث بترتيب تصاعدي للفهرسة، باستخدام العملية
+     * `indexOf` الخاصة بـ TypedArray الأساسي. يقتصر البحث حصريًا
+     * على العناصر المشغولة، مع تجاهل السعة غير المستخدمة للكتلة.
+     *
+     * يمكن تحديد موضع بدء البحث باستخدام `fromIndex`،
+     * وفقًا لقواعد الفهرسة الخاصة بـ TypedArray.
+     *
+     * @param {number} handler - معرّف الكتلة.
+     * @param {number|bigint} searchElement - العنصر المطلوب العثور عليه.
+     * @param {number} [fromIndex=0] - الفهرس الذي يبدأ منه البحث.
+     * @returns {number} فهرس أول ظهور، أو `-1` إذا لم يتم العثور
+     * على العنصر أو إذا كانت الكتلة فارغة.
+     * @throws {Error} إذا كان معرّف الكتلة غير صالح أو تالفًا.
+     */
+    indexOf(handler: number, searchElement: number | bigint, fromIndex?: number): number;
+    /**
+     * يعثر على آخر ظهور لعنصر في التسلسل المشغول للكتلة.
+     *
+     * يتم إجراء البحث بترتيب تنازلي للفهرسة، باستخدام العملية
+     * `lastIndexOf` الخاصة بـ TypedArray الأساسي. يقتصر البحث حصريًا
+     * على العناصر المشغولة، مع تجاهل السعة غير المستخدمة للكتلة.
+     *
+     * يمكن تحديد موضع بدء البحث باستخدام `fromIndex`،
+     * وفقًا لقواعد الفهرسة الخاصة بـ TypedArray. افتراضيًا،
+     * يبدأ البحث من آخر عنصر مشغول.
+     *
+     * @param {number} handler - معرّف الكتلة.
+     * @param {number|bigint} searchElement - العنصر المطلوب العثور عليه.
+     * @param {number} [fromIndex=-1] - الفهرس الذي يبدأ منه البحث.
+     * @returns {number} فهرس آخر ظهور، أو `-1` إذا لم يتم العثور
+     * على العنصر أو إذا كانت الكتلة فارغة.
+     * @throws {Error} إذا كان معرّف الكتلة غير صالح أو تالفًا.
+     */
+    lastIndexOf(handler: number, searchElement: number | bigint, fromIndex?: number): number;
+    /**
     * يُرجع العنصر المشغول عند فهرس يعتمد على الصفر (zero-based index).
     *
     * الفهارس خارج النطاق `[0, occupied)` لا تُعتبر خطأ و
