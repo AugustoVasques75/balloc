@@ -525,7 +525,8 @@ export default class Balloc {
      * @param {number} value - Valor a ser inserido.
      * @returns {boolean} `true` se o valor foi inserido; `false` se o bloco
      * já estiver sem espaço disponível.
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
+     * 
      */
     push(handler, value) {
         const meta = this.extractMetadata(handler, this.metadata);
@@ -549,7 +550,7 @@ export default class Balloc {
      * @param {number} handler - Handler do bloco.
      * @returns {number|undefined} Valor removido ou `undefined` se o bloco
      * estiver vazio.
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
      */
     pop(handler) {
         const meta = this.extractMetadata(handler, this.metadata);
@@ -593,7 +594,7 @@ export default class Balloc {
      * @param {number} value - Valor a ser inserido.
      * @returns {boolean} `true` se o valor foi inserido; `false` se o bloco
      * estiver cheio.
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
      */
     nudge(handler, value) {
         const meta = this.extractMetadata(handler, this.metadata);
@@ -619,7 +620,7 @@ export default class Balloc {
      * @param {number} handler - Handler do bloco.
      * @returns {number|undefined} Primeiro valor removido ou `undefined` se o
      * bloco estiver vazio.
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
      */
     pull(handler) {
         const meta = this.extractMetadata(handler, this.metadata);
@@ -763,7 +764,7 @@ export default class Balloc {
      * @param {number} value - Novo valor.
      * @returns {boolean} `true` se o valor foi gravado; `false` se o índice
      * estiver fora da região ocupada.
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
      */
     set(handler, index, value) {
         const meta = this.extractMetadata(handler, this.metadata);
@@ -788,7 +789,7 @@ export default class Balloc {
      * @param {number} handler - Handler do bloco.
      * @param {number} [value=0] - Valor utilizado para preencher todos os slots.
      * @returns {void}
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
      */
     clear(handler, value = 0) {
         const meta = this.extractMetadata(handler, this.metadata);
@@ -819,7 +820,7 @@ export default class Balloc {
      * @param {number|null} [end=null] - Índice final, exclusivo. Quando
      * omitido ou `null`, utiliza a capacidade total do bloco.
      * @returns {void}
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
      * @throws {RangeError} Se `start` ou `end` estiver fora dos limites da
      * capacidade, ou se `start > end`.
      */
@@ -855,7 +856,7 @@ export default class Balloc {
      * @param {number} handler - Handler do bloco.
      * @param {number} value - Valor utilizado no preenchimento.
      * @returns {void}
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
      */
     fillAll(handler, value) {
         const meta = this.extractMetadata(handler, this.metadata);
@@ -883,7 +884,7 @@ export default class Balloc {
      * @param {number} handler - Handler do bloco.
      * @param {Array|TypedArray} data - Sequência de valores a copiar.
      * @returns {void}
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
      * @throws {TypeError} Se `data` não for uma `Array` nem uma `TypedArray`.
      */
     put(handler, data) {
@@ -938,7 +939,9 @@ export default class Balloc {
      * A view compartilha o armazenamento interno do Balloc e não realiza cópia.
      * O bloco fica protegido contra operações incompatíveis durante o callback.
      *
-     * O callback deve ser síncrono e não deve reter a referência recebida.
+     * O callback deve ser síncrono. A view recebida não deve ser armazenada,
+     * retornada ou utilizada após o término do callback. Essa restrição
+     * também se aplica a subviews derivadas da view original.
      *
      * @param {number} handler - Handler do bloco.
      * @param {Function} callback - Função que recebe a TypedArray compartilhada.
@@ -1050,7 +1053,7 @@ export default class Balloc {
      * `UNKNOWN` representa o valor sentinela utilizado para não impor um
      * limite adicional.
      * @returns {Uint8Array} O `dataBus` após a operação.
-     * @throws {Error} Se `source` ou `destination` for inválido ou estiver corrompido.
+     * @throws {Error} Se os handlers forem inválidos, estiverem corrompidos ou qualquer um dos blocos estiver emprestado por withView().
      */
     copy(source, destination, slots = UNKNOWN) {
         /** @type {Metadata} */
@@ -1091,7 +1094,7 @@ export default class Balloc {
      * @param {number} start - Índice inicial da origem.
      * @param {number} length - Número máximo de elementos a copiar.
      * @returns {Uint8Array} O `dataBus` após a operação.
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
      */
     copyWithin(handler, target, start, length) {
         const meta = this.extractMetadata(handler, this.metadata);
@@ -1332,6 +1335,16 @@ export default class Balloc {
 
     // ============= UTILITÁRIOS ==============
 
+    /**
+     * Impede operações de modificação sobre um bloco emprestado.
+     *
+     * Verifica a flag VIEW_LOCK no header associado ao endereço informado.
+     *
+     * @param {number} headerAddress - Endereço do header no controlBus.
+     * @returns {void}
+     * @throws {Error} Se o bloco estiver emprestado por withView().
+     * @private
+     */
     assertNotBorrowed(headerAddress) {
         if (this.controlBus[headerAddress + FLAGS_OFFSET] & VIEW_LOCK) {
             throw new Error("Block is borrowed");
@@ -1341,6 +1354,10 @@ export default class Balloc {
     /**
      * Impede operações que substituem ou remanejam o dataBus
      * enquanto existir algum segmento emprestado.
+     *
+     * @returns {void}
+     * @throws {Error} Se existir algum bloco emprestado por withView().
+     * @private
      */
     assertNoActiveViews() {
         for (let i = 0; i < this.controlPointer; i += HEADER_SIZE) {
