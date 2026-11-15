@@ -278,7 +278,7 @@ La documentación completa de la API está disponible en la carpeta [`./docs`](.
 | Chino | [./docs/API — balloc.zh.md](./docs/API%20—%20balloc.zh.md) |
 | Español | [./docs/API — balloc.es.md](./docs/API%20—%20balloc.es.md) |
 | Inglés | [./docs/API — balloc.en.md](./docs/API%20—%20balloc.en.md) |
-| Japonés | [./docs/API — balloc.ja.md](./docs/API%20—%20balloc.ja.md) |
+| Japonés | [./docs/API — balloc.jp.md](./docs/API%20—%20balloc.jp.md) |
 | Portugués | [./docs/API — balloc.pt.md](./docs/API%20—%20balloc.pt.md) |
 
 Los métodos de la API están agrupados por afinidad:
