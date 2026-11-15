@@ -256,6 +256,7 @@ export default class Balloc {
      * máximo suportado.
      */
     realloc(handler) {
+        this.assertNotBorrowed(handler);
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
         const headerAddress = handler >>> 0;
         const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
@@ -315,6 +316,7 @@ export default class Balloc {
      * @throws {Error} Se o handler for inválido ou estiver corrompido.
      */
     free(handler) {
+        this.assertNotBorrowed(handler);
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
         const headerAddress = handler >>> 0;
         const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);

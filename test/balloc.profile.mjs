@@ -2,7 +2,7 @@
 import { performance } from "node:perf_hooks";
 import Balloc from "../src/pt/balloc.mjs";
 
-const SIZES = [4, 16, 64, 256, 1024, 16384, 65536];
+const SIZES = [4, 16, 64, 256, 1024, 16384, 65536, 131072, 262144, 524288, 1048576];
 const TARGET_ELEMENTS = 262144;
 const WARMUP_ROUNDS = 2;
 const SAMPLE_ROUNDS = 7;
