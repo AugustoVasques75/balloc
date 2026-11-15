@@ -277,7 +277,7 @@ Balloc 提供以下几种数据访问模型：
 | 中文 | [./docs/API — balloc.zh.md](./docs/API%20—%20balloc.zh.md) |
 | 西班牙语 | [./docs/API — balloc.es.md](./docs/API%20—%20balloc.es.md) |
 | 英语 | [./docs/API — balloc.en.md](./docs/API%20—%20balloc.en.md) |
-| 日语 | [./docs/API — balloc.ja.md](./docs/API%20—%20balloc.ja.md) |
+| 日语 | [./docs/API — balloc.jp.md](./docs/API%20—%20balloc.jp.md) |
 | 葡萄牙语 | [./docs/API — balloc.pt.md](./docs/API%20—%20balloc.pt.md) |
 
 API 方法按功能归为以下类别：
