@@ -389,7 +389,26 @@ Segue um resumo desses agrupamentos:
 | `unallocatedBytes` | Espaço restante após o ponteiro do bump |
 | `fragmentationRatio` | Bytes reciclados / área de heap usada |
 
-### Empréstimo de memória com `withView()`\n\n`withView(handler, callback)` fornece ao callback uma `TypedArray` diretamente sobre a região ocupada do bloco. A view não é uma cópia: alterações feitas nela modificam o conteúdo do bloco. O callback é síncrono, recebe a view como único argumento e seu valor de retorno é propagado por `withView()`.\n\nA view não deve ser retida nem utilizada após o término do callback. Se o callback retornar uma Promise, o empréstimo será liberado imediatamente após o retorno da Promise, sem aguardar sua resolução. O bloqueio é liberado mesmo quando o callback lança uma exceção.\n\nEnquanto o bloco estiver emprestado, operações que o modificam diretamente — incluindo `push()`, `pop()`, `nudge()`, `pull()`, `set()`, `clear()`, `fill()`, `fillAll()`, `put()`, `realloc()`, `free()` e operações de cópia que o tenham como destino — são bloqueadas. `swap()` também é bloqueado se qualquer dos blocos estiver emprestado. Leituras e operações que utilizam o bloco apenas como origem permanecem permitidas.\n\nOperações que substituem ou remapeiam o `dataBus`, como `gc()` e o crescimento do barramento por `alloc()` ou `realloc()`, são bloqueadas enquanto existir qualquer view ativa.\n\nExemplo:\n\n```js\nconst result = memory.withView(handler, view => {\n    view[0] = 42;\n    return view.length;\n});\n```\n\n### Funções internas
+### Empréstimo de memória com `withView()`
+
+`withView(handler, callback)` fornece ao callback uma `TypedArray` diretamente sobre a região ocupada do bloco. A view não é uma cópia: alterações feitas nela modificam o conteúdo do bloco. O callback é síncrono, recebe a view como único argumento e seu valor de retorno é propagado por `withView()`.
+
+A view não deve ser retida nem utilizada após o término do callback. Se o callback retornar uma Promise, o empréstimo será liberado imediatamente após o retorno da Promise, sem aguardar sua resolução. O bloqueio é liberado mesmo quando o callback lança uma exceção.
+
+Enquanto o bloco estiver emprestado, operações que o modificam diretamente — incluindo `push()`, `pop()`, `nudge()`, `pull()`, `set()`, `clear()`, `fill()`, `fillAll()`, `put()`, `realloc()`, `free()` e operações de cópia que o tenham como destino — são bloqueadas. `swap()` também é bloqueado se qualquer dos blocos estiver emprestado. Leituras e operações que utilizam o bloco apenas como origem permanecem permitidas.
+
+Operações que substituem ou remapeiam o `dataBus`, como `gc()` e o crescimento do barramento por `alloc()` ou `realloc()`, são bloqueadas enquanto existir qualquer view ativa.
+
+Exemplo:
+
+```js
+const result = memory.withView(handler, view => {
+    view[0] = 42;
+    return view.length;
+});
+```
+
+### Funções internas
 
 São um caso especial de API utilizada primariamente dentro do próprio alocador e normalmente não recomendadas para uso no código do dia a dia, pois podem causar efeitos colaterais não documentados. Seu uso destina-se a extensões e modificações da biblioteca onde é fundamental o entendimento e a compreensão total do código-fonte de Balloc.
 
