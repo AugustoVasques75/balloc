@@ -3,3 +3,4 @@
 - Add `indexOf()` method - https://github.com/AugustoVasques75/balloc/issues/1
 - Add `lastIndexOf()` method
 - Add method isFull() - https://github.com/AugustoVasques75/balloc/issues/2
+- Typo correction

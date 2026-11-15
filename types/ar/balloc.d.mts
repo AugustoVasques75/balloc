@@ -491,7 +491,7 @@ export default class Balloc {
     /**
      * ينسخ العناصر المشغولة من كتلة إلى أخرى.
      *
-     * يبدأ النسخ من العنصر الأول لـ `source` وأول فتحة لـ `destiny`.
+     * يبدأ النسخ من العنصر الأول لـ `source` وأول فتحة لـ `destination`.
      * الكمية المنسوخة فعليًا محددة بعدد العناصر المشغولة في المصدر،
      * السعة الفيزيائية للوجهة، والحد المحدد في `slots`.
      *
@@ -502,13 +502,13 @@ export default class Balloc {
      * وبالتالي تكون القيمة المُرجعة هي `Uint8Array` التي تمثل ناقل البيانات.
      *
      * @param {number} source - مقبض كتلة المصدر.
-     * @param {number} destiny - مقبض كتلة الوجهة.
+     * @param {number} destination - مقبض كتلة الوجهة.
      * @param {number} [slots=UNKNOWN] - الحد الأقصى لعدد العناصر المراد نسخها.
      * يمثل `UNKNOWN` قيمة الحراسة المستخدمة لعدم فرض حد إضافي.
      * @returns {Uint8Array} ناقل البيانات (`dataBus`) بعد العملية.
-     * @throws {Error} إذا كانت `source` أو `destiny` غير صالحة أو تالفة.
+     * @throws {Error} إذا كانت `source` أو `destination` غير صالحة أو تالفة.
      */
-    copy(source: number, destiny: number, slots?: number): Uint8Array;
+    copy(source: number, destination: number, slots?: number): Uint8Array;
     /**
      * ينسخ منطقة من العناصر داخل نفس الكتلة.
      *

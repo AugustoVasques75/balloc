@@ -789,7 +789,7 @@ var Balloc = class {
    * Copies occupied elements from one block to another.
    *
    * Copying begins at the first element of `source` and the first slot of
-   * `destiny`. The effectively copied quantity is limited by the number of occupied
+   * `destination`. The effectively copied quantity is limited by the number of occupied
    * elements in the source, the destination's physical capacity, and the limit
    * specified in `slots`.
    *
@@ -800,17 +800,17 @@ var Balloc = class {
    * therefore the return value is the `Uint8Array` representing the data bus.
    *
    * @param {number} source - Source block handle.
-   * @param {number} destiny - Destination block handle.
+   * @param {number} destination - Destination block handle.
    * @param {number} [slots=UNKNOWN] - Maximum number of elements to copy.
    * `UNKNOWN` represents the sentinel value used not to impose an additional limit.
    * @returns {Uint8Array} The `dataBus` after the operation.
-   * @throws {Error} If `source` or `destiny` is invalid or corrupted.
+   * @throws {Error} If `source` or `destination` is invalid or corrupted.
    */
-  copy(source, destiny, slots = UNKNOWN) {
+  copy(source, destination, slots = UNKNOWN) {
     const metaA = {};
     const metaB = {};
     this.extractMetadata(source, metaA);
-    this.extractMetadata(destiny, metaB);
+    this.extractMetadata(destination, metaB);
     const maxSlotsDest = Math.floor(metaB.byteCapacity / this.wordSize);
     const slotsToCopy = Math.min(metaA.occupied, maxSlotsDest, slots);
     const newOccupied = Math.max(metaB.occupied, slotsToCopy);

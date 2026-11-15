@@ -800,7 +800,7 @@ var Balloc = class {
    * Copia elementos ocupados de um bloco para outro.
    *
    * A cópia começa no primeiro elemento de `source` e no primeiro slot de
-   * `destiny`. A quantidade efetivamente copiada é limitada pelo número de
+   * `destination`. A quantidade efetivamente copiada é limitada pelo número de
    * elementos ocupados na origem, pela capacidade física do destino e pelo
    * limite especificado em `slots`.
    *
@@ -812,18 +812,18 @@ var Balloc = class {
    * de dados.
    *
    * @param {number} source - Handler do bloco de origem.
-   * @param {number} destiny - Handler do bloco de destino.
+   * @param {number} destination - Handler do bloco de destino.
    * @param {number} [slots=UNKNOWN] - Número máximo de elementos a copiar.
    * `UNKNOWN` representa o valor sentinela utilizado para não impor um
    * limite adicional.
    * @returns {Uint8Array} O `dataBus` após a operação.
-   * @throws {Error} Se `source` ou `destiny` for inválido ou estiver corrompido.
+   * @throws {Error} Se `source` ou `destination` for inválido ou estiver corrompido.
    */
-  copy(source, destiny, slots = UNKNOWN) {
+  copy(source, destination, slots = UNKNOWN) {
     const metaA = {};
     const metaB = {};
     this.extractMetadata(source, metaA);
-    this.extractMetadata(destiny, metaB);
+    this.extractMetadata(destination, metaB);
     const maxSlotsDest = Math.floor(metaB.byteCapacity / this.wordSize);
     const slotsToCopy = Math.min(metaA.occupied, maxSlotsDest, slots);
     const newOccupied = Math.max(metaB.occupied, slotsToCopy);

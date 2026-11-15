@@ -771,7 +771,7 @@ var Balloc = class {
   /**
    * あるブロックから別のブロックへ占有要素をコピーします。
    *
-   * コピーは`source`の最初の要素と`destiny`の最初のスロットから開始されます。
+   * コピーは`source`の最初の要素と`destination`の最初のスロットから開始されます。
    * 実際にコピーされる量は、コピー元の占有要素数、コピー先の物理容量、
    * および`slots`で指定された制限によって制限されます。
    *
@@ -782,17 +782,17 @@ var Balloc = class {
    * 返り値はデータバスを表す`Uint8Array`自身になります。
    *
    * @param {number} source - コピー元ブロックのハンドル。
-   * @param {number} destiny - コピー先ブロックのハンドル。
+   * @param {number} destination - コピー先ブロックのハンドル。
    * @param {number} [slots=UNKNOWN] - コピーする最大要素数。
    * `UNKNOWN`は、追加の制限を課さないために使用されるセンチネル値を表します。
    * @returns {Uint8Array} 操作後の`dataBus`。
-   * @throws {Error} `source`または`destiny`が無効または破損している場合。
+   * @throws {Error} `source`または`destination`が無効または破損している場合。
    */
-  copy(source, destiny, slots = UNKNOWN) {
+  copy(source, destination, slots = UNKNOWN) {
     const metaA = {};
     const metaB = {};
     this.extractMetadata(source, metaA);
-    this.extractMetadata(destiny, metaB);
+    this.extractMetadata(destination, metaB);
     const maxSlotsDest = Math.floor(metaB.byteCapacity / this.wordSize);
     const slotsToCopy = Math.min(metaA.occupied, maxSlotsDest, slots);
     const newOccupied = Math.max(metaB.occupied, slotsToCopy);

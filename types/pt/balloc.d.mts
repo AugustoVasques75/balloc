@@ -511,7 +511,7 @@ export default class Balloc {
      * Copia elementos ocupados de um bloco para outro.
      *
      * A cópia começa no primeiro elemento de `source` e no primeiro slot de
-     * `destiny`. A quantidade efetivamente copiada é limitada pelo número de
+     * `destination`. A quantidade efetivamente copiada é limitada pelo número de
      * elementos ocupados na origem, pela capacidade física do destino e pelo
      * limite especificado em `slots`.
      *
@@ -523,14 +523,14 @@ export default class Balloc {
      * de dados.
      *
      * @param {number} source - Handler do bloco de origem.
-     * @param {number} destiny - Handler do bloco de destino.
+     * @param {number} destination - Handler do bloco de destino.
      * @param {number} [slots=UNKNOWN] - Número máximo de elementos a copiar.
      * `UNKNOWN` representa o valor sentinela utilizado para não impor um
      * limite adicional.
      * @returns {Uint8Array} O `dataBus` após a operação.
-     * @throws {Error} Se `source` ou `destiny` for inválido ou estiver corrompido.
+     * @throws {Error} Se `source` ou `destination` for inválido ou estiver corrompido.
      */
-    copy(source: number, destiny: number, slots?: number): Uint8Array;
+    copy(source: number, destination: number, slots?: number): Uint8Array;
     /**
      * Copia uma região de elementos dentro do próprio bloco.
      *

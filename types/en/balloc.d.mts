@@ -500,7 +500,7 @@ export default class Balloc {
      * Copies occupied elements from one block to another.
      *
      * Copying begins at the first element of `source` and the first slot of
-     * `destiny`. The effectively copied quantity is limited by the number of occupied
+     * `destination`. The effectively copied quantity is limited by the number of occupied
      * elements in the source, the destination's physical capacity, and the limit
      * specified in `slots`.
      *
@@ -511,13 +511,13 @@ export default class Balloc {
      * therefore the return value is the `Uint8Array` representing the data bus.
      *
      * @param {number} source - Source block handle.
-     * @param {number} destiny - Destination block handle.
+     * @param {number} destination - Destination block handle.
      * @param {number} [slots=UNKNOWN] - Maximum number of elements to copy.
      * `UNKNOWN` represents the sentinel value used not to impose an additional limit.
      * @returns {Uint8Array} The `dataBus` after the operation.
-     * @throws {Error} If `source` or `destiny` is invalid or corrupted.
+     * @throws {Error} If `source` or `destination` is invalid or corrupted.
      */
-    copy(source: number, destiny: number, slots?: number): Uint8Array;
+    copy(source: number, destination: number, slots?: number): Uint8Array;
     /**
      * Copies a region of elements within the same block.
      *

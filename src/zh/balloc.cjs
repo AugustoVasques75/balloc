@@ -739,7 +739,7 @@ var Balloc = class {
   /**
    * 将占用的元素从一个块复制到另一个块。
    *
-   * 复制从 `source` 的第一个元素和 `destiny` 的第一个槽位开始。
+   * 复制从 `source` 的第一个元素和 `destination` 的第一个槽位开始。
    * 实际复制的数量受源中占用元素数量、目标物理容量以及 `slots` 中指定的限制所限制。
    *
    * 必要时会增加目标的占用数以涵盖复制的元素。目标的容量保持不变。
@@ -748,17 +748,17 @@ var Balloc = class {
    * 因此返回值为表示数据总线的 `Uint8Array` 本身。
    *
    * @param {number} source - 源块句柄。
-   * @param {number} destiny - 目标块句柄。
+   * @param {number} destination - 目标块句柄。
    * @param {number} [slots=UNKNOWN] - 要复制的最大元素数量。
    * `UNKNOWN` 表示不施加额外限制所使用的哨兵值。
    * @returns {Uint8Array} 操作后的 `dataBus`。
-   * @throws {Error} 如果 `source` 或 `destiny` 无效或已损坏。
+   * @throws {Error} 如果 `source` 或 `destination` 无效或已损坏。
    */
-  copy(source, destiny, slots = UNKNOWN) {
+  copy(source, destination, slots = UNKNOWN) {
     const metaA = {};
     const metaB = {};
     this.extractMetadata(source, metaA);
-    this.extractMetadata(destiny, metaB);
+    this.extractMetadata(destination, metaB);
     const maxSlotsDest = Math.floor(metaB.byteCapacity / this.wordSize);
     const slotsToCopy = Math.min(metaA.occupied, maxSlotsDest, slots);
     const newOccupied = Math.max(metaB.occupied, slotsToCopy);

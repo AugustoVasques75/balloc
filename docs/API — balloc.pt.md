@@ -789,26 +789,26 @@ boolean
 
 # 6. Operações entre blocos
 
-## `copy(source, destiny, slots = UNKNOWN)`
+## `copy(source, destination, slots = UNKNOWN)`
 
-Copia os elementos ocupados de `source` para o início de `destiny`.
+Copia os elementos ocupados de `source` para o início de `destination`.
 
 A quantidade copiada é limitada por:
 
 1. ocupação de `source`;
-2. capacidade de `destiny`;
+2. capacidade de `destination`;
 3. `slots`.
 
-A ocupação de `destiny` é aumentada quando necessário, mas sua capacidade não é alterada.
+A ocupação de `destination` é aumentada quando necessário, mas sua capacidade não é alterada.
 
 ```js
-memory.copy(source, destiny);
+memory.copy(source, destination);
 ```
 
 Limitação explícita:
 
 ```js
-memory.copy(source, destiny, 8);
+memory.copy(source, destination, 8);
 ```
 
 ### Retorno
