@@ -100,6 +100,8 @@ export default class Balloc {
      * comportar. Deve ser um inteiro seguro no intervalo [2, 0x80000000].
      * @returns {number} Handler que identifica o bloco alocado.
      * @throws {RangeError} Se `size` estiver fora do intervalo permitido.
+     * @throws {Error} Se for necessário expandir o `dataBus` enquanto houver
+     * algum bloco emprestado por withView().
      */
     alloc(size?: number): number;
     /**
@@ -119,25 +121,28 @@ export default class Balloc {
      *
      * @param {number} handler - Handler do bloco a ser expandido.
      * @returns {void}
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco
+     * estiver emprestado por withView(). Também ocorre se a expansão exigir
+     * remapeamento do dataBus enquanto houver outro bloco emprestado.
      * @throws {AggregateError} Se a capacidade já tiver atingido o limite
      * máximo suportado.
      */
     realloc(handler: number): void;
     /**
-     * Libera um bloco de memória.
-     *
-     * O header do bloco é invalidado pelo zeramento de seu cookie e seu
-     * endereço é registrado para posterior reutilização. A região de dados
-     * também é devolvida ao sistema de reciclagem, exceto quando o bloco está
-     * exatamente no topo do `dataBus`; nesse caso, o `dataPointer` é simplesmente
-     * retrocedido, eliminando a região sem criar uma entrada na lista de
-     * reciclagem.
-     *
-     * @param {number} handler - Handler do bloco a ser liberado.
-     * @returns {void}
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
-     */
+    * Libera um bloco de memória.
+    *
+    * O header do bloco é invalidado pelo zeramento de seu cookie e seu
+    * endereço é registrado para posterior reutilização. A região de dados
+    * também é devolvida ao sistema de reciclagem, exceto quando o bloco está
+    * exatamente no topo do `dataBus`; nesse caso, o `dataPointer` é simplesmente
+    * retrocedido, eliminando a região sem criar uma entrada na lista de
+    * reciclagem.
+    *
+    * @param {number} handler - Handler do bloco a ser liberado.
+    * @returns {void}
+    * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco
+    * estiver emprestado por withView().
+    */
     free(handler: number): void;
     /**
      * [USO INTERNO]
@@ -196,6 +201,7 @@ export default class Balloc {
      * do volume de bytes pertencente aos blocos vivos.
      *
      * @returns {void}
+     * @throws {Error} Se houver algum bloco emprestado por withView().
      */
     gc(): void;
     /**
@@ -207,6 +213,7 @@ export default class Balloc {
      * para referenciar o novo armazenamento.
      *
      * @returns {void}
+     * @throws {Error} Se houver algum bloco emprestado por withView().
      * @throws {RangeError} Se a capacidade do `dataBus` já tiver excedido o
      * limite máximo suportado.
      * @private
@@ -237,7 +244,8 @@ export default class Balloc {
      * @param {number} value - Valor a ser inserido.
      * @returns {boolean} `true` se o valor foi inserido; `false` se o bloco
      * já estiver sem espaço disponível.
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
+     *
      */
     push(handler: number, value: number): boolean;
     /**
@@ -250,7 +258,7 @@ export default class Balloc {
      * @param {number} handler - Handler do bloco.
      * @returns {number|undefined} Valor removido ou `undefined` se o bloco
      * estiver vazio.
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
      */
     pop(handler: number): number | undefined;
     /**
@@ -276,7 +284,7 @@ export default class Balloc {
      * @param {number} value - Valor a ser inserido.
      * @returns {boolean} `true` se o valor foi inserido; `false` se o bloco
      * estiver cheio.
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
      */
     nudge(handler: number, value: number): boolean;
     /**
@@ -290,7 +298,7 @@ export default class Balloc {
      * @param {number} handler - Handler do bloco.
      * @returns {number|undefined} Primeiro valor removido ou `undefined` se o
      * bloco estiver vazio.
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
      */
     pull(handler: number): number | undefined;
     /**
@@ -377,7 +385,7 @@ export default class Balloc {
      * @param {number} value - Novo valor.
      * @returns {boolean} `true` se o valor foi gravado; `false` se o índice
      * estiver fora da região ocupada.
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
      */
     set(handler: number, index: number, value: number): boolean;
     /**
@@ -391,7 +399,7 @@ export default class Balloc {
      * @param {number} handler - Handler do bloco.
      * @param {number} [value=0] - Valor utilizado para preencher todos os slots.
      * @returns {void}
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
      */
     clear(handler: number, value?: number): void;
     /**
@@ -411,7 +419,7 @@ export default class Balloc {
      * @param {number|null} [end=null] - Índice final, exclusivo. Quando
      * omitido ou `null`, utiliza a capacidade total do bloco.
      * @returns {void}
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
      * @throws {RangeError} Se `start` ou `end` estiver fora dos limites da
      * capacidade, ou se `start > end`.
      */
@@ -426,7 +434,7 @@ export default class Balloc {
      * @param {number} handler - Handler do bloco.
      * @param {number} value - Valor utilizado no preenchimento.
      * @returns {void}
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
      */
     fillAll(handler: number, value: number): void;
     /**
@@ -444,7 +452,7 @@ export default class Balloc {
      * @param {number} handler - Handler do bloco.
      * @param {Array|TypedArray} data - Sequência de valores a copiar.
      * @returns {void}
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
      * @throws {TypeError} Se `data` não for uma `Array` nem uma `TypedArray`.
      */
     put(handler: number, data: any[] | TypedArray): void;
@@ -464,6 +472,23 @@ export default class Balloc {
     * @throws {Error} Se o handler for inválido ou estiver corrompido.
     */
     pick(handler: number): TypedArray;
+    /**
+     * Executa um callback sobre uma view direta da região ocupada pelo bloco.
+     *
+     * A view compartilha o armazenamento interno do Balloc e não realiza cópia.
+     * O bloco fica protegido contra operações incompatíveis durante o callback.
+     *
+     * O callback deve ser síncrono. A view recebida não deve ser armazenada,
+     * retornada ou utilizada após o término do callback. Essa restrição
+     * também se aplica a subviews derivadas da view original.
+     *
+     * @param {number} handler - Handler do bloco.
+     * @param {Function} callback - Função que recebe a TypedArray compartilhada.
+     * @returns {*} Retorno produzido pelo callback.
+     * @throws {TypeError} Se callback não for uma função.
+     * @throws {Error} Se o handler for inválido ou já estiver emprestado.
+     */
+    withView(handler: number, callback: Function): any;
     /**
      * Retorna a capacidade física do bloco em bytes.
      *
@@ -508,28 +533,29 @@ export default class Balloc {
      */
     isFull(handler: number): boolean;
     /**
-     * Copia elementos ocupados de um bloco para outro.
-     *
-     * A cópia começa no primeiro elemento de `source` e no primeiro slot de
-     * `destination`. A quantidade efetivamente copiada é limitada pelo número de
-     * elementos ocupados na origem, pela capacidade física do destino e pelo
-     * limite especificado em `slots`.
-     *
-     * A ocupação do destino é elevada, quando necessário, para abranger os
-     * elementos copiados. A capacidade do destino não é alterada.
-     *
-     * A operação utiliza `Uint8Array.prototype.copyWithin()` sobre o `dataBus`,
-     * portanto o retorno é o próprio `Uint8Array` que representa o barramento
-     * de dados.
-     *
-     * @param {number} source - Handler do bloco de origem.
-     * @param {number} destination - Handler do bloco de destino.
-     * @param {number} [slots=UNKNOWN] - Número máximo de elementos a copiar.
-     * `UNKNOWN` representa o valor sentinela utilizado para não impor um
-     * limite adicional.
-     * @returns {Uint8Array} O `dataBus` após a operação.
-     * @throws {Error} Se `source` ou `destination` for inválido ou estiver corrompido.
-     */
+    * Copia elementos ocupados de um bloco para outro.
+    *
+    * A cópia começa no primeiro elemento de `source` e no primeiro slot de
+    * `destination`. A quantidade efetivamente copiada é limitada pelo número de
+    * elementos ocupados na origem, pela capacidade física do destino e pelo
+    * limite especificado em `slots`.
+    *
+    * A ocupação do destino é elevada, quando necessário, para abranger os
+    * elementos copiados. A capacidade do destino não é alterada.
+    *
+    * A operação utiliza `Uint8Array.prototype.copyWithin()` sobre o `dataBus`,
+    * portanto o retorno é o próprio `Uint8Array` que representa o barramento
+    * de dados.
+    *
+    * @param {number} source - Handler do bloco de origem.
+    * @param {number} destination - Handler do bloco de destino.
+    * @param {number} [slots=UNKNOWN] - Número máximo de elementos a copiar.
+    * `UNKNOWN` representa o valor sentinela utilizado para não impor um
+    * limite adicional.
+    * @returns {Uint8Array} O `dataBus` após a operação.
+    * @throws {Error} Se os handlers forem inválidos, estiverem corrompidos
+    * ou o bloco de destino estiver emprestado por withView().
+    */
     copy(source: number, destination: number, slots?: number): Uint8Array;
     /**
      * Copia uma região de elementos dentro do próprio bloco.
@@ -552,7 +578,7 @@ export default class Balloc {
      * @param {number} start - Índice inicial da origem.
      * @param {number} length - Número máximo de elementos a copiar.
      * @returns {Uint8Array} O `dataBus` após a operação.
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
      */
     copyWithin(handler: number, target: number, start: number, length: number): Uint8Array;
     /**
@@ -569,7 +595,8 @@ export default class Balloc {
      * @param {number} source - Handler do bloco cujos elementos serão
      * acrescentados.
      * @returns {number} Número de elementos efetivamente acrescentados.
-     * @throws {Error} Se `target` ou `source` for inválido ou estiver corrompido.
+     * @throws {Error} Se os handlers forem inválidos, estiverem corrompidos
+     * ou o bloco de destino estiver emprestado por withView().
      */
     append(target: number, source: number): number;
     /**
@@ -602,7 +629,8 @@ export default class Balloc {
      * @param {number} source - Handler do primeiro bloco.
      * @param {number} target - Handler do segundo bloco.
      * @returns {void}
-     * @throws {Error} Se `source` ou `target` for inválido ou estiver corrompido.
+     * @throws {Error} Se os handlers forem inválidos, estiverem corrompidos
+     * ou qualquer um dos blocos estiver emprestado por withView().
      */
     swap(source: number, target: number): void;
     /**
@@ -630,6 +658,26 @@ export default class Balloc {
      * @throws {Error} Se o tipo de palavra do dado decodificado divergir do configurado no alocador.
      */
     load(serialized: Uint8Array | ArrayBuffer): number;
+    /**
+     * Impede operações de modificação sobre um bloco emprestado.
+     *
+     * Verifica a flag VIEW_LOCK no header associado ao endereço informado.
+     *
+     * @param {number} headerAddress - Endereço do header no controlBus.
+     * @returns {void}
+     * @throws {Error} Se o bloco estiver emprestado por withView().
+     * @private
+     */
+    private assertNotBorrowed;
+    /**
+     * Impede operações que substituem ou remanejam o dataBus
+     * enquanto existir algum segmento emprestado.
+     *
+     * @returns {void}
+     * @throws {Error} Se existir algum bloco emprestado por withView().
+     * @private
+     */
+    private assertNoActiveViews;
     /**
      * [USO INTERNO]
      * Decodifica os metadados associados a um handler.

@@ -43,6 +43,8 @@ var ADDRESS_OFFSET = 0 >>> 0;
 var OCCUPIED_OFFSET = 4 >>> 0;
 var CAPACITY_OFFSET = 8 >>> 0;
 var COOKIE_OFFSET = 9 >>> 0;
+var FLAGS_OFFSET = 10 >>> 0;
+var VIEW_LOCK = 1 >>> 0;
 var ROTATE_32BITS = 4294967296;
 var CLAMP_11BITS = 2047 >>> 0;
 var isTypedArray = (val) => ArrayBuffer.isView(val) && !(val instanceof DataView);
@@ -131,6 +133,8 @@ var Balloc = class {
    * comportar. Deve ser um inteiro seguro no intervalo [2, 0x80000000].
    * @returns {number} Handler que identifica o bloco alocado.
    * @throws {RangeError} Se `size` estiver fora do intervalo permitido.
+   * @throws {Error} Se for necessário expandir o `dataBus` enquanto houver
+   * algum bloco emprestado por withView().
    */
   alloc(size = 16) {
     if (!Number.isSafeInteger(size) || size < 2 || size > 2147483648) throw new RangeError(`Parameter size must be in range [2, 0x80000000] but size is ${size}`);
@@ -156,6 +160,7 @@ var Balloc = class {
     this.controlAdapter.setUint32(headerAddress + OCCUPIED_OFFSET, 0, IS_LITTLE_ENDIAN);
     this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, capacity);
     this.controlAdapter.setUint8(headerAddress + COOKIE_OFFSET, this.bakeCookie(headerAddress, ++this.generation));
+    this.controlBus[headerAddress + FLAGS_OFFSET] = 0;
     return (this.generation & CLAMP_11BITS) * ROTATE_32BITS + headerAddress;
   }
   /**
@@ -175,13 +180,15 @@ var Balloc = class {
    *
    * @param {number} handler - Handler do bloco a ser expandido.
    * @returns {void}
-   * @throws {Error} Se o handler for inválido ou estiver corrompido.
+   * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco
+   * estiver emprestado por withView(). Também ocorre se a expansão exigir
+   * remapeamento do dataBus enquanto houver outro bloco emprestado.
    * @throws {AggregateError} Se a capacidade já tiver atingido o limite
    * máximo suportado.
    */
   realloc(handler) {
     const generation = handler / ROTATE_32BITS & CLAMP_11BITS;
-    let headerAddress = handler >>> 0;
+    const headerAddress = handler >>> 0;
     const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
     const occupied = this.controlAdapter.getUint32(headerAddress + OCCUPIED_OFFSET, IS_LITTLE_ENDIAN);
     const capacity = this.controlAdapter.getUint8(headerAddress + CAPACITY_OFFSET);
@@ -189,50 +196,53 @@ var Balloc = class {
     if (cookie !== this.bakeCookie(headerAddress, generation)) {
       throw new Error("Invalid or corrupted handle");
     }
+    this.assertNotBorrowed(headerAddress);
     if (capacity >= 31) throw new AggregateError([new Error("Can\xB4t reallocate handler."), new RangeError("Capacity has reached its limit.")], "Internal Error.");
     const newCapacity = capacity + 1;
     const newBlockSize = (1 << newCapacity >>> 0) * this.wordSize;
     const oldBlockSize = (1 << capacity >>> 0) * this.wordSize;
     if (dataAddress + oldBlockSize === this.dataPointer) {
       while (dataAddress + newBlockSize > this.size) this.grow();
-      this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, newCapacity, IS_LITTLE_ENDIAN);
+      this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, newCapacity);
       this.dataPointer = dataAddress + newBlockSize;
       return;
     }
-    this.recyclePush(oldBlockSize, dataAddress);
     let newAddress = this.recyclePop(newBlockSize);
     if (newAddress === UNKNOWN) {
       while (this.dataPointer + newBlockSize > this.size) this.grow();
       newAddress = this.dataPointer;
       this.dataPointer += newBlockSize;
     }
-    this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, newCapacity);
     this.dataBus.copyWithin(newAddress, dataAddress, dataAddress + occupied * this.wordSize);
     this.controlAdapter.setUint32(headerAddress + ADDRESS_OFFSET, newAddress, IS_LITTLE_ENDIAN);
+    this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, newCapacity);
+    this.recyclePush(oldBlockSize, dataAddress);
   }
   /**
-   * Libera um bloco de memória.
-   *
-   * O header do bloco é invalidado pelo zeramento de seu cookie e seu
-   * endereço é registrado para posterior reutilização. A região de dados
-   * também é devolvida ao sistema de reciclagem, exceto quando o bloco está
-   * exatamente no topo do `dataBus`; nesse caso, o `dataPointer` é simplesmente
-   * retrocedido, eliminando a região sem criar uma entrada na lista de
-   * reciclagem.
-   *
-   * @param {number} handler - Handler do bloco a ser liberado.
-   * @returns {void}
-   * @throws {Error} Se o handler for inválido ou estiver corrompido.
-   */
+  * Libera um bloco de memória.
+  *
+  * O header do bloco é invalidado pelo zeramento de seu cookie e seu
+  * endereço é registrado para posterior reutilização. A região de dados
+  * também é devolvida ao sistema de reciclagem, exceto quando o bloco está
+  * exatamente no topo do `dataBus`; nesse caso, o `dataPointer` é simplesmente
+  * retrocedido, eliminando a região sem criar uma entrada na lista de
+  * reciclagem.
+  *
+  * @param {number} handler - Handler do bloco a ser liberado.
+  * @returns {void}
+  * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco
+  * estiver emprestado por withView().
+  */
   free(handler) {
     const generation = handler / ROTATE_32BITS & CLAMP_11BITS;
-    let headerAddress = handler >>> 0;
+    const headerAddress = handler >>> 0;
     const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
     const capacity = this.controlAdapter.getUint8(headerAddress + CAPACITY_OFFSET);
     const cookie = this.controlAdapter.getUint8(headerAddress + COOKIE_OFFSET);
     if (cookie !== this.bakeCookie(headerAddress, generation)) {
       throw new Error("Invalid or corrupted handle");
     }
+    this.assertNotBorrowed(headerAddress);
     const blockSize = (1 << capacity >>> 0) * this.wordSize;
     this.controlAdapter.setUint8(headerAddress + COOKIE_OFFSET, 0);
     if (this.echoPointer + 4 <= this.controlBus.byteLength) {
@@ -326,8 +336,10 @@ var Balloc = class {
    * do volume de bytes pertencente aos blocos vivos.
    *
    * @returns {void}
+   * @throws {Error} Se houver algum bloco emprestado por withView().
    */
   gc() {
+    this.assertNoActiveViews();
     const newDataBus = new Uint8Array(this.dataBus.buffer.byteLength);
     this.recycle.clear();
     this.dataPointer = 0 >>> 0;
@@ -356,11 +368,13 @@ var Balloc = class {
    * para referenciar o novo armazenamento.
    *
    * @returns {void}
+   * @throws {Error} Se houver algum bloco emprestado por withView().
    * @throws {RangeError} Se a capacidade do `dataBus` já tiver excedido o
    * limite máximo suportado.
    * @private
    */
   grow() {
+    this.assertNoActiveViews();
     if (this.size > 2147483648) throw new RangeError("Data bus capacity exceeded");
     const newSize = this.size * 2 >>> 0;
     const newBuffer = this.dataBus.buffer.transfer(newSize);
@@ -403,10 +417,12 @@ var Balloc = class {
    * @param {number} value - Valor a ser inserido.
    * @returns {boolean} `true` se o valor foi inserido; `false` se o bloco
    * já estiver sem espaço disponível.
-   * @throws {Error} Se o handler for inválido ou estiver corrompido.
+   * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
+   * 
    */
   push(handler, value) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     if ((meta.occupied + 1) * this.wordSize > meta.byteCapacity) return false;
     this.writer(meta.dataAddress + meta.occupied * this.wordSize, value, IS_LITTLE_ENDIAN);
     this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied + 1, IS_LITTLE_ENDIAN);
@@ -422,10 +438,11 @@ var Balloc = class {
    * @param {number} handler - Handler do bloco.
    * @returns {number|undefined} Valor removido ou `undefined` se o bloco
    * estiver vazio.
-   * @throws {Error} Se o handler for inválido ou estiver corrompido.
+   * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
    */
   pop(handler) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     if (meta.occupied === 0) return void 0;
     this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied - 1, IS_LITTLE_ENDIAN);
     return this.reader(meta.dataAddress + (meta.occupied - 1) * this.wordSize, IS_LITTLE_ENDIAN);
@@ -458,10 +475,11 @@ var Balloc = class {
    * @param {number} value - Valor a ser inserido.
    * @returns {boolean} `true` se o valor foi inserido; `false` se o bloco
    * estiver cheio.
-   * @throws {Error} Se o handler for inválido ou estiver corrompido.
+   * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
    */
   nudge(handler, value) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     if ((meta.occupied + 1) * this.wordSize > meta.byteCapacity) return false;
     this.dataBus.copyWithin(meta.dataAddress + this.wordSize, meta.dataAddress, meta.dataAddress + meta.occupied * this.wordSize);
     this.writer(meta.dataAddress, value, IS_LITTLE_ENDIAN);
@@ -479,10 +497,11 @@ var Balloc = class {
    * @param {number} handler - Handler do bloco.
    * @returns {number|undefined} Primeiro valor removido ou `undefined` se o
    * bloco estiver vazio.
-   * @throws {Error} Se o handler for inválido ou estiver corrompido.
+   * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
    */
   pull(handler) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     if (meta.occupied === 0) return void 0;
     const result = this.reader(meta.dataAddress, IS_LITTLE_ENDIAN);
     this.dataBus.copyWithin(meta.dataAddress, meta.dataAddress + this.wordSize, meta.dataAddress + meta.occupied * this.wordSize);
@@ -597,10 +616,11 @@ var Balloc = class {
    * @param {number} value - Novo valor.
    * @returns {boolean} `true` se o valor foi gravado; `false` se o índice
    * estiver fora da região ocupada.
-   * @throws {Error} Se o handler for inválido ou estiver corrompido.
+   * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
    */
   set(handler, index, value) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     if (index < 0 || index >= meta.occupied) return false;
     this.writer(meta.dataAddress + index * this.wordSize, value, IS_LITTLE_ENDIAN);
     return true;
@@ -617,10 +637,11 @@ var Balloc = class {
    * @param {number} handler - Handler do bloco.
    * @param {number} [value=0] - Valor utilizado para preencher todos os slots.
    * @returns {void}
-   * @throws {Error} Se o handler for inválido ou estiver corrompido.
+   * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
    */
   clear(handler, value = 0) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     const slots = meta.byteCapacity / this.wordSize;
     const rawAddress = meta.dataAddress >>> this.wordShift;
     this.auxiliary.fill(value, rawAddress, rawAddress + slots);
@@ -643,12 +664,13 @@ var Balloc = class {
    * @param {number|null} [end=null] - Índice final, exclusivo. Quando
    * omitido ou `null`, utiliza a capacidade total do bloco.
    * @returns {void}
-   * @throws {Error} Se o handler for inválido ou estiver corrompido.
+   * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
    * @throws {RangeError} Se `start` ou `end` estiver fora dos limites da
    * capacidade, ou se `start > end`.
    */
   fill(handler, value, start = 0, end = null) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     const slots = meta.byteCapacity / this.wordSize;
     const lastIndex = end ?? slots;
     if (start > lastIndex) {
@@ -674,10 +696,11 @@ var Balloc = class {
    * @param {number} handler - Handler do bloco.
    * @param {number} value - Valor utilizado no preenchimento.
    * @returns {void}
-   * @throws {Error} Se o handler for inválido ou estiver corrompido.
+   * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
    */
   fillAll(handler, value) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     const rawAddress = meta.dataAddress >>> this.wordShift;
     const capacityElements = meta.byteCapacity / this.wordSize;
     this.auxiliary.fill(value, rawAddress, rawAddress + capacityElements);
@@ -698,14 +721,14 @@ var Balloc = class {
    * @param {number} handler - Handler do bloco.
    * @param {Array|TypedArray} data - Sequência de valores a copiar.
    * @returns {void}
-   * @throws {Error} Se o handler for inválido ou estiver corrompido.
+   * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
    * @throws {TypeError} Se `data` não for uma `Array` nem uma `TypedArray`.
    */
   put(handler, data) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     const rawAddress = meta.dataAddress >>> this.wordShift;
     const length = Math.min(1 << meta.capacityExponent >>> 0, data.length);
-    meta.occupied = Math.max(length, meta.occupied);
     if (Array.isArray(data)) {
       this.auxiliary.set(data.slice(0, length), rawAddress);
     } else if (isTypedArray(data)) {
@@ -714,7 +737,7 @@ var Balloc = class {
       const actual = data?.constructor?.name ?? (data === null ? "null" : typeof data);
       throw new TypeError(`data must be Array or TypedArray, but ${actual} was given.`);
     }
-    this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied, IS_LITTLE_ENDIAN);
+    this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, Math.max(length, meta.occupied), IS_LITTLE_ENDIAN);
   }
   /**
   * Retorna uma cópia dos elementos atualmente ocupados pelo bloco.
@@ -738,6 +761,36 @@ var Balloc = class {
       return this.auxiliary.slice(rawAddress, rawAddress);
     }
     return this.auxiliary.slice(rawAddress, rawAddress + meta.occupied);
+  }
+  /**
+   * Executa um callback sobre uma view direta da região ocupada pelo bloco.
+   *
+   * A view compartilha o armazenamento interno do Balloc e não realiza cópia.
+   * O bloco fica protegido contra operações incompatíveis durante o callback.
+   *
+   * O callback deve ser síncrono. A view recebida não deve ser armazenada,
+   * retornada ou utilizada após o término do callback. Essa restrição
+   * também se aplica a subviews derivadas da view original.
+   *
+   * @param {number} handler - Handler do bloco.
+   * @param {Function} callback - Função que recebe a TypedArray compartilhada.
+   * @returns {*} Retorno produzido pelo callback.
+   * @throws {TypeError} Se callback não for uma função.
+   * @throws {Error} Se o handler for inválido ou já estiver emprestado.
+   */
+  withView(handler, callback) {
+    if (typeof callback !== "function") throw new TypeError("callback must be a function");
+    const meta = this.extractMetadata(handler, this.metadata);
+    const flagsAddress = meta.headerAddress + FLAGS_OFFSET;
+    const flags = this.controlBus[flagsAddress];
+    if (flags & VIEW_LOCK) throw new Error("Block is already borrowed");
+    this.controlBus[flagsAddress] = flags | VIEW_LOCK;
+    try {
+      const rawAddress = meta.dataAddress >>> this.wordShift;
+      return callback(this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied));
+    } finally {
+      this.controlBus[flagsAddress] &= ~VIEW_LOCK;
+    }
   }
   // ======== CAPACIDADE EM SLOTS ==========
   /**
@@ -797,33 +850,35 @@ var Balloc = class {
   }
   // ==========Operações entre blocos=============
   /**
-   * Copia elementos ocupados de um bloco para outro.
-   *
-   * A cópia começa no primeiro elemento de `source` e no primeiro slot de
-   * `destination`. A quantidade efetivamente copiada é limitada pelo número de
-   * elementos ocupados na origem, pela capacidade física do destino e pelo
-   * limite especificado em `slots`.
-   *
-   * A ocupação do destino é elevada, quando necessário, para abranger os
-   * elementos copiados. A capacidade do destino não é alterada.
-   *
-   * A operação utiliza `Uint8Array.prototype.copyWithin()` sobre o `dataBus`,
-   * portanto o retorno é o próprio `Uint8Array` que representa o barramento
-   * de dados.
-   *
-   * @param {number} source - Handler do bloco de origem.
-   * @param {number} destination - Handler do bloco de destino.
-   * @param {number} [slots=UNKNOWN] - Número máximo de elementos a copiar.
-   * `UNKNOWN` representa o valor sentinela utilizado para não impor um
-   * limite adicional.
-   * @returns {Uint8Array} O `dataBus` após a operação.
-   * @throws {Error} Se `source` ou `destination` for inválido ou estiver corrompido.
-   */
+  * Copia elementos ocupados de um bloco para outro.
+  *
+  * A cópia começa no primeiro elemento de `source` e no primeiro slot de
+  * `destination`. A quantidade efetivamente copiada é limitada pelo número de
+  * elementos ocupados na origem, pela capacidade física do destino e pelo
+  * limite especificado em `slots`.
+  *
+  * A ocupação do destino é elevada, quando necessário, para abranger os
+  * elementos copiados. A capacidade do destino não é alterada.
+  *
+  * A operação utiliza `Uint8Array.prototype.copyWithin()` sobre o `dataBus`,
+  * portanto o retorno é o próprio `Uint8Array` que representa o barramento
+  * de dados.
+  *
+  * @param {number} source - Handler do bloco de origem.
+  * @param {number} destination - Handler do bloco de destino.
+  * @param {number} [slots=UNKNOWN] - Número máximo de elementos a copiar.
+  * `UNKNOWN` representa o valor sentinela utilizado para não impor um
+  * limite adicional.
+  * @returns {Uint8Array} O `dataBus` após a operação.
+  * @throws {Error} Se os handlers forem inválidos, estiverem corrompidos
+  * ou o bloco de destino estiver emprestado por withView().
+  */
   copy(source, destination, slots = UNKNOWN) {
     const metaA = {};
     const metaB = {};
     this.extractMetadata(source, metaA);
     this.extractMetadata(destination, metaB);
+    this.assertNotBorrowed(metaB.headerAddress);
     const maxSlotsDest = Math.floor(metaB.byteCapacity / this.wordSize);
     const slotsToCopy = Math.min(metaA.occupied, maxSlotsDest, slots);
     const newOccupied = Math.max(metaB.occupied, slotsToCopy);
@@ -851,10 +906,11 @@ var Balloc = class {
    * @param {number} start - Índice inicial da origem.
    * @param {number} length - Número máximo de elementos a copiar.
    * @returns {Uint8Array} O `dataBus` após a operação.
-   * @throws {Error} Se o handler for inválido ou estiver corrompido.
+   * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco estiver emprestado por withView().
    */
   copyWithin(handler, target, start, length) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     const slots = Math.floor(meta.byteCapacity / this.wordSize);
     target = Math.trunc(target);
     start = Math.trunc(start);
@@ -887,23 +943,21 @@ var Balloc = class {
    * @param {number} source - Handler do bloco cujos elementos serão
    * acrescentados.
    * @returns {number} Número de elementos efetivamente acrescentados.
-   * @throws {Error} Se `target` ou `source` for inválido ou estiver corrompido.
+   * @throws {Error} Se os handlers forem inválidos, estiverem corrompidos
+   * ou o bloco de destino estiver emprestado por withView().
    */
   append(target, source) {
     const metaTarget = {};
     const metaSource = {};
     this.extractMetadata(target, metaTarget);
     this.extractMetadata(source, metaSource);
+    this.assertNotBorrowed(metaTarget.headerAddress);
     const available = metaTarget.byteCapacity / this.wordSize - metaTarget.occupied;
     const count = Math.min(available, metaSource.occupied);
     if (count === 0) return 0;
     const targetAddress = metaTarget.dataAddress + metaTarget.occupied * this.wordSize;
     const sourceAddress = metaSource.dataAddress;
-    if (target === source) {
-      this.dataBus.copyWithin(targetAddress, sourceAddress, sourceAddress + count * this.wordSize);
-    } else {
-      this.dataBus.copyWithin(targetAddress, sourceAddress, sourceAddress + count * this.wordSize);
-    }
+    this.dataBus.copyWithin(targetAddress, sourceAddress, sourceAddress + count * this.wordSize);
     this.controlAdapter.setUint32(metaTarget.headerAddress + OCCUPIED_OFFSET, metaTarget.occupied + count, IS_LITTLE_ENDIAN);
     return count;
   }
@@ -945,13 +999,16 @@ var Balloc = class {
    * @param {number} source - Handler do primeiro bloco.
    * @param {number} target - Handler do segundo bloco.
    * @returns {void}
-   * @throws {Error} Se `source` ou `target` for inválido ou estiver corrompido.
+   * @throws {Error} Se os handlers forem inválidos, estiverem corrompidos
+   * ou qualquer um dos blocos estiver emprestado por withView().
    */
   swap(source, target) {
     const metaA = {};
     const metaB = {};
     this.extractMetadata(source, metaA);
     this.extractMetadata(target, metaB);
+    this.assertNotBorrowed(metaA.headerAddress);
+    this.assertNotBorrowed(metaB.headerAddress);
     this.controlAdapter.setUint32(metaA.headerAddress + ADDRESS_OFFSET, metaB.dataAddress, IS_LITTLE_ENDIAN);
     this.controlAdapter.setUint32(metaB.headerAddress + ADDRESS_OFFSET, metaA.dataAddress, IS_LITTLE_ENDIAN);
     this.controlAdapter.setUint8(metaA.headerAddress + CAPACITY_OFFSET, metaB.capacityExponent);
@@ -1041,6 +1098,37 @@ var Balloc = class {
     return handler;
   }
   // ============= UTILITÁRIOS ==============
+  /**
+   * Impede operações de modificação sobre um bloco emprestado.
+   *
+   * Verifica a flag VIEW_LOCK no header associado ao endereço informado.
+   *
+   * @param {number} headerAddress - Endereço do header no controlBus.
+   * @returns {void}
+   * @throws {Error} Se o bloco estiver emprestado por withView().
+   * @private
+   */
+  assertNotBorrowed(headerAddress) {
+    if (this.controlBus[headerAddress + FLAGS_OFFSET] & VIEW_LOCK) {
+      throw new Error("Block is borrowed");
+    }
+  }
+  /**
+   * Impede operações que substituem ou remanejam o dataBus
+   * enquanto existir algum segmento emprestado.
+   *
+   * @returns {void}
+   * @throws {Error} Se existir algum bloco emprestado por withView().
+   * @private
+   */
+  assertNoActiveViews() {
+    for (let i = 0; i < this.controlPointer; i += HEADER_SIZE) {
+      if (this.controlBus[i + COOKIE_OFFSET] === 0) continue;
+      if (this.controlBus[i + FLAGS_OFFSET] & VIEW_LOCK) {
+        throw new Error("Cannot remap memory while a block is borrowed");
+      }
+    }
+  }
   /**
    * [USO INTERNO]
    * Decodifica os metadados associados a um handler.

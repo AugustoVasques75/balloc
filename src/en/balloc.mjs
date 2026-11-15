@@ -16,7 +16,7 @@ const UNKNOWN = 0xFFFFFFFF >>> 0;
  * 
  * Bucket identifier syntax:
  * 
- * [Size in bits][Data type]
+ * [Size in bits][data type]
  * 
  * Examples:
  * A 32-bit unsigned integer bucket: 32u
@@ -24,14 +24,14 @@ const UNKNOWN = 0xFFFFFFFF >>> 0;
  * 
  */
 const BUCKET_MAPPING = Object.freeze({
-    "8u":  { type: "Uint8",  bits: 8 },
-    "16u": { type: "Uint16",  bits: 16 },
-    "32u": { type: "Uint32",  bits: 32 },
-    "64u": { type: "BigUint64",  bits: 64 },
-    "8i":  { type: "Int8",   bits: 8 },
-    "16i": { type: "Int16",   bits: 16 },
-    "32i": { type: "Int32",   bits: 32 },
-    "64i": { type: "BigInt64",   bits: 64 },
+    "8u": { type: "Uint8", bits: 8 },
+    "16u": { type: "Uint16", bits: 16 },
+    "32u": { type: "Uint32", bits: 32 },
+    "64u": { type: "BigUint64", bits: 64 },
+    "8i": { type: "Int8", bits: 8 },
+    "16i": { type: "Int16", bits: 16 },
+    "32i": { type: "Int32", bits: 32 },
+    "64i": { type: "BigInt64", bits: 64 },
     "16f": { type: "Float16", bits: 16 },
     "32f": { type: "Float32", bits: 32 },
     "64f": { type: "Float64", bits: 64 }
@@ -41,7 +41,7 @@ const BUCKET_MAPPING = Object.freeze({
  * Bucket types supported by the allocator:
  * - Unsigned integers: '8u', '16u', '32u', '64u'
  * - Signed integers: '8i', '16i', '32i', '64i'
- * - Floating-point: '16f', '32f', '64f'
+ * - Floating point: '16f', '32f', '64f'
  *
  * @typedef {'8u'|'16u'|'32u'|'64u'|'8i'|'16i'|'32i'|'64i'|'16f'|'32f'|'64f'} BucketType
  */
@@ -57,27 +57,34 @@ const IS_LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
 
 /**
  * Metadata format.
- *  0               4                8               9             10              
- *  [32bits address][32bits occupied][8bits capacity][8bits cookie][48bits reserved]
- * 
- * Total: 4 + 4 + 1 + 1 + 6 = 16 bytes
+ *
+ * [32bits address][32bits occupied][8bits capacity][8bits cookie][8bits flags][40bits reserved]
+ *
+ *
+ * Total: 16 bytes
  */
 const HEADER_SIZE = 16 >>> 0;
-
-const ADDRESS_OFFSET  = 0 >>> 0;
+const ADDRESS_OFFSET = 0 >>> 0;
 const OCCUPIED_OFFSET = 4 >>> 0;
 const CAPACITY_OFFSET = 8 >>> 0;
-const COOKIE_OFFSET   = 9 >>> 0;
+const COOKIE_OFFSET = 9 >>> 0;
+const FLAGS_OFFSET = 10 >>> 0;
+
+/**
+ * Flags:
+ * bit 0: VIEW_LOCK
+ */
+const VIEW_LOCK = 1 >>> 0;
 
 
 const ROTATE_32BITS = 4294967296;
 const CLAMP_11BITS = 0x7FF >>> 0;
 
 /**
- * Structure containing metadata encoded within a handle.
+ * Structure containing the metadata encoded in a handle.
  * 
  * @typedef {Object} Metadata
- * @property {number} byteCapacity - The capacity of the memory block in bytes.
+ * @property {number} byteCapacity - The byte capacity of the memory block.
  * @property {number} capacityExponent - The capacity of the memory block expressed as a base-two exponent.
  * @property {number} dataAddress - Address of the memory block within the dataBus.
  * @property {number} generation - Generation to which the handle belongs.
@@ -86,9 +93,9 @@ const CLAMP_11BITS = 0x7FF >>> 0;
  */
 
 /**
- * Checks if a value is an instance of a TypedArray.
+ * Checks if a value is a TypedArray instance.
  * 
- * @param {any} val - Value to test.
+ * @param {any} val - Value to be tested.
  * @returns {boolean} `true` if the value is a TypedArray, otherwise `false`.
  */
 const isTypedArray = (val) => ArrayBuffer.isView(val) && !(val instanceof DataView);
@@ -105,36 +112,36 @@ export default class Balloc {
      * - `dataBus`: stores the data of allocated blocks;
      * - `controlBus`: stores headers and other control metadata.
      *
-     * Each block has a fixed-size header (`HEADER_SIZE`) and is externally
-     * identified by a 43-bit logical handle, composed of an 11-bit generation
-     * and a 32-bit header address.
+     * Each block has a fixed-size header (`HEADER_SIZE`) and is
+     * identified externally by a 43-bit logical handle, composed
+     * of an 11-bit generation and its 32-bit header address.
      *
-     * The capacity of each block is rounded up to the next power of two
-     * in elements, respecting the configured bucket width.
+     * The capacity of each block is rounded up to the next power of
+     * two in elements, respecting the width of the configured bucket.
      *
      * @param {number} [size=65535] - Initial capacity of the `dataBus`, in bytes.
      * Must be a safe integer in the range [2, 0x80000000].
-     * @param {BucketType} [bucketSize="32u"] - Bucket type and size identifier
+     * @param {BucketType} [bucketSize="32u"] - Identifier for the bucket type and size
      * (e.g., '32u' for Uint32, '64f' for Float64, '8i' for Int8).
      * @param {number} [metadataSize=1024] - Initial capacity of the `controlBus`,
      * in bytes. Must be a safe integer in the range
      * [HEADER_SIZE, 0x80000000].
      *
-     * @throws {RangeError} If `size` is out of the allowed range.
+     * @throws {RangeError} If `size` is outside the allowed range.
      * @throws {RangeError} If `bucketSize` is not a valid bucket identifier.
-     * @throws {RangeError} If `metadataSize` is out of the allowed range.
+     * @throws {RangeError} If `metadataSize` is outside the allowed range.
      */
-   constructor(size = 65535, bucketSize = "32u", metadataSize = 1024) {
+    constructor(size = 65535, bucketSize = "32u", metadataSize = 1024) {
 
         if (!Number.isSafeInteger(size) || size < 2 || size > 0x80000000) throw new RangeError(`Parameter size must be in range [2, 0x80000000] but size is ${size}`);
 
-        
+
         if (!BUCKET_MAPPING[bucketSize]) {
             throw new RangeError(`bucketSize must be in ([ 8 || 16 || 32 || 64][ u || i ]) || ([ 16 || 32 || 64][ f ]) but I found ${bucketSize}`);
         }
 
         if (!Number.isSafeInteger(metadataSize) || metadataSize < HEADER_SIZE || metadataSize > 0x80000000) throw new RangeError(`Parameter metadataSize must be in range [HEADER_SIZE, 0x80000000] but metadataSize is ${metadataSize}`);
-        
+
         this.wordType = bucketSize;
         this.bucketType = BUCKET_MAPPING[bucketSize].type;
         this.bucketSize = BUCKET_MAPPING[bucketSize].bits >>> 0;
@@ -165,7 +172,7 @@ export default class Balloc {
             byteCapacity: 0 >>> 0,
             occupied: 0 >>> 0,
         };
-        
+
     }
 
     // ========== ALLOCATION ==========
@@ -174,28 +181,29 @@ export default class Balloc {
      * Allocates a new memory block.
      *
      * The requested capacity is converted to the smallest power of two that
-     * accommodates `size` elements. The block is preferably obtained from the list
-     * of recyclable regions with the corresponding capacity; if no compatible
-     * region exists, the block is reserved at the top of the `dataBus`.
+     * can accommodate `size` elements. The block is obtained preferentially from the list
+     * of recyclable regions with the corresponding capacity; if a compatible
+     * region does not exist, the block is reserved at the top of the `dataBus`.
      *
      * Next, a header is obtained from the control space. Previously freed headers
-     * can be reused via the internal recycling stack; otherwise, the `controlBus`
-     * is expanded when necessary.
+     * can be reused via the internal recycling stack;
+     * otherwise, the `controlBus` is expanded when necessary.
      *
      * The header receives the address, capacity, initial occupancy (zero), and
      * a validation cookie. The returned value encodes the allocation generation
      * and the header address:
      *
-     *     [11 bits generation][32 bits header address]
+     *     [11 generation bits][32 header address bits]
      *
      * @param {number} [size=16] - Minimum number of elements the block must
      * accommodate. Must be a safe integer in the range [2, 0x80000000].
      * @returns {number} Handle identifying the allocated block.
-     * @throws {RangeError} If `size` is out of the allowed range.
+     * @throws {RangeError} If `size` is outside the allowed range.
+     * @throws {Error} If it is necessary to expand the `dataBus` while any
+     * block is borrowed via withView().
      */
     alloc(size = 16) {
         if (!Number.isSafeInteger(size) || size < 2 || size > 0x80000000) throw new RangeError(`Parameter size must be in range [2, 0x80000000] but size is ${size}`);
-
 
         const capacity = (32 - Math.clz32(size - 1));
         const blockSize = (1 << capacity >>> 0) * this.wordSize;
@@ -209,21 +217,21 @@ export default class Balloc {
         }
 
         let headerAddress = 0 >>> 0;
-
         if (this.echoPointer > this.controlPointer) {
             this.echoPointer -= 4;
-            headerAddress = this.controlAdapter.getUint32(this.echoPointer, IS_LITTLE_ENDIAN);            
+            headerAddress = this.controlAdapter.getUint32(this.echoPointer, IS_LITTLE_ENDIAN);
         } else {
             if (this.controlPointer + HEADER_SIZE > this.controlAdapter.byteLength) this.headerGrow();
             headerAddress = this.controlPointer;
-            this.controlPointer+= HEADER_SIZE;
-            this.echoPointer+= HEADER_SIZE;
+            this.controlPointer += HEADER_SIZE;
+            this.echoPointer += HEADER_SIZE;
         }
 
         this.controlAdapter.setUint32(headerAddress + ADDRESS_OFFSET, dataAddress, IS_LITTLE_ENDIAN);
         this.controlAdapter.setUint32(headerAddress + OCCUPIED_OFFSET, 0, IS_LITTLE_ENDIAN);
         this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, capacity);
         this.controlAdapter.setUint8(headerAddress + COOKIE_OFFSET, this.bakeCookie(headerAddress, ++this.generation));
+        this.controlBus[headerAddress + FLAGS_OFFSET] = 0;
 
         return (this.generation & CLAMP_11BITS) * ROTATE_32BITS + headerAddress;
     }
@@ -232,37 +240,41 @@ export default class Balloc {
      * Expands a block's capacity to the next power of two.
      *
      * When the block is located at the current top of the `dataBus`, expansion
-     * occurs in-place: only its capacity and `dataPointer` are updated.
+     * occurs in-place: only its capacity and `dataPointer` are
+     * updated.
      *
      * If another region exists after the block, a new region with double the
-     * capacity is obtained from the recyclable space or allocated at the top of
-     * the `dataBus`. Currently occupied elements are then copied to the new region,
+     * capacity is obtained from the recyclable space or allocated at the top of the `dataBus`.
+     * The currently occupied elements are then copied to the new region,
      * and the previous region is returned to the recycling list.
      *
-     * The handle remains valid because its header is preserved, and only the
-     * address and capacity recorded within it are updated.
+     * The handle remains valid because its header is preserved and only the
+     * address and capacity recorded in it are updated.
      *
-     * @param {number} handler - Handle of the block to expand.
+     * @param {number} handler - Handle of the block to be expanded.
      * @returns {void}
-     * @throws {Error} If the handle is invalid or corrupted.
-     * @throws {AggregateError} If the capacity has reached its maximum
+     * @throws {Error} If the handle is invalid, corrupted, or the block
+     * is borrowed via withView(). Also occurs if expansion requires
+     * dataBus remapping while another block is borrowed.
+     * @throws {AggregateError} If the capacity has reached the maximum
      * supported limit.
      */
     realloc(handler) {
+        
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
-        let headerAddress = handler >>> 0;
-
+        const headerAddress = handler >>> 0;
         const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
         const occupied = this.controlAdapter.getUint32(headerAddress + OCCUPIED_OFFSET, IS_LITTLE_ENDIAN);
         const capacity = this.controlAdapter.getUint8(headerAddress + CAPACITY_OFFSET);
         const cookie = this.controlAdapter.getUint8(headerAddress + COOKIE_OFFSET);
 
-
         if (cookie !== this.bakeCookie(headerAddress, generation)) {
             throw new Error("Invalid or corrupted handle");
         }
 
-        if (capacity >= 31) throw new AggregateError([new Error("Can´t reallocate handler.") ,new RangeError("Capacity has reached its limit.")], "Internal Error.");
+        this.assertNotBorrowed(headerAddress);
+
+        if (capacity >= 31) throw new AggregateError([new Error("Can´t reallocate handler."), new RangeError("Capacity has reached its limit.")], "Internal Error.");
 
         const newCapacity = capacity + 1;
         const newBlockSize = (1 << newCapacity >>> 0) * this.wordSize;
@@ -271,13 +283,10 @@ export default class Balloc {
         if (dataAddress + oldBlockSize === this.dataPointer) {
             while (dataAddress + newBlockSize > this.size) this.grow();
 
-            this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, newCapacity, IS_LITTLE_ENDIAN);
+            this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, newCapacity);
             this.dataPointer = dataAddress + newBlockSize;
-
             return;
         }
-
-        this.recyclePush(oldBlockSize, dataAddress);
 
         let newAddress = this.recyclePop(newBlockSize);
 
@@ -288,56 +297,57 @@ export default class Balloc {
             this.dataPointer += newBlockSize;
         }
 
-        this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, newCapacity);
         this.dataBus.copyWithin(newAddress, dataAddress, dataAddress + occupied * this.wordSize);
 
         this.controlAdapter.setUint32(headerAddress + ADDRESS_OFFSET, newAddress, IS_LITTLE_ENDIAN);
+        this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, newCapacity);
+
+        this.recyclePush(oldBlockSize, dataAddress);
     }
 
-    /**
+     /**
      * Frees a memory block.
      *
-     * The block's header is invalidated by zeroing its cookie, and its address
-     * is registered for later reuse. The data region is also returned to the
-     * recycling system, except when the block is exactly at the top of the
-     * `dataBus`; in that case, `dataPointer` is simply rolled back, eliminating
-     * the region without creating an entry in the recycling list.
+     * The block's header is invalidated by zeroing its cookie, and its
+     * address is registered for later reuse. The data region
+     * is also returned to the recycling system, except when the block is
+     * exactly at the top of the `dataBus`; in that case, the `dataPointer` is simply
+     * rolled back, eliminating the region without creating an entry in the recycling
+     * list.
      *
-     * @param {number} handler - Handle of the block to free.
+     * @param {number} handler - Handle of the block to be freed.
      * @returns {void}
-     * @throws {Error} If the handle is invalid or corrupted.
+     * @throws {Error} If the handle is invalid, corrupted, or the block
+     * is borrowed via withView().
      */
     free(handler) {
+        
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
-        let headerAddress = handler >>> 0;
-
+        const headerAddress = handler >>> 0;
         const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
         const capacity = this.controlAdapter.getUint8(headerAddress + CAPACITY_OFFSET);
         const cookie = this.controlAdapter.getUint8(headerAddress + COOKIE_OFFSET);
-
 
         if (cookie !== this.bakeCookie(headerAddress, generation)) {
             throw new Error("Invalid or corrupted handle");
         }
 
-        const blockSize = (1 << capacity >>> 0) * this.wordSize;
+        this.assertNotBorrowed(headerAddress);
 
+        const blockSize = (1 << capacity >>> 0) * this.wordSize;
         this.controlAdapter.setUint8(headerAddress + COOKIE_OFFSET, 0);
 
         if (this.echoPointer + 4 <= this.controlBus.byteLength) {
             this.controlAdapter.setUint32(this.echoPointer, headerAddress, IS_LITTLE_ENDIAN);
             this.echoPointer += 4;
-        }        
-
+        }
 
         if (dataAddress + blockSize === this.dataPointer) {
             this.dataPointer = dataAddress;
         } else {
             this.recyclePush(blockSize, dataAddress);
         }
-
     }
-
     // ========== RECYCLING ==========
 
     /**
@@ -345,13 +355,13 @@ export default class Balloc {
      * Inserts a free region into the recycling list.
      *
      * The list is organized by capacity in bytes. For each capacity, the
-     * stored value is a `Uint32Array` whose zero position contains the number
-     * of registered addresses, and subsequent positions contain the addresses
-     * of the free regions:
+     * stored value is a `Uint32Array` whose zero position contains the quantity
+     * of registered addresses and subsequent positions contain the addresses of
+     * the free regions:
      *
      *     [count, address1, address2, ...]
      *
-     * When the page becomes full, its buffer is expanded to double the current
+     * When the page becomes full, its buffer is expanded to double its current
      * capacity.
      *
      * @param {number} capacity - Capacity of the free region, in bytes.
@@ -387,7 +397,7 @@ export default class Balloc {
      *
      * @param {number} capacity - Desired capacity, in bytes.
      * @returns {number} Initial address of a recyclable region or `UNKNOWN`
-     * when no region exists with the requested capacity.
+     * when a region with the requested capacity does not exist.
      * @private
      */
     recyclePop(capacity) {
@@ -405,41 +415,50 @@ export default class Balloc {
     }
 
     // ========== GARBAGE COLLECTION ==========
+
     /**
      * Compacts the `dataBus` using the ReBump algorithm.
      *
      * Sequentially traverses the headers registered in the `controlBus` and copies
-     * still-valid regions to a new `dataBus`, eliminating free spaces between them.
-     * The address of each surviving block is updated in its respective header.
+     * still-valid regions to a new `dataBus`, eliminating free spaces
+     * between them. Each surviving block's address is updated in its
+     * respective header.
      *
-     * The order of blocks in the `controlBus` is preserved. Internal data of each
-     * block is also fully preserved, including its reserved capacity and current
-     * occupancy.
+     * The order of blocks in the `controlBus` is preserved. The internal data of
+     * each block is also fully preserved, including its reserved capacity
+     * and current occupancy.
      *
-     * At the end of compaction:
+     * Upon completion of compaction:
      * - all recyclable regions are eliminated;
      * - `dataPointer` points to the first byte after the last live block;
-     * - `dataBus` represents a contiguous heap for active blocks.
+     * - the `dataBus` represents a contiguous heap for active blocks.
      *
-     * Control complexity is O(n), where `n` is the number of headers traversed.
-     * The effective cost of memory movement also depends on the volume of bytes
-     * belonging to live blocks.
+     * Control complexity is O(n), where `n` is the number of traversed
+     * headers. The effective memory movement cost also depends on the volume
+     * of bytes belonging to live blocks.
      *
      * @returns {void}
+     * @throws {Error} If any block is borrowed via withView().
      */
     gc() {
+        this.assertNoActiveViews();
+
         const newDataBus = new Uint8Array(this.dataBus.buffer.byteLength);
         this.recycle.clear();
         this.dataPointer = 0 >>> 0;
-        for (let i = 0; i < this.controlPointer; i+= HEADER_SIZE) {
+
+        for (let i = 0; i < this.controlPointer; i += HEADER_SIZE) {
             if (this.controlBus[i + COOKIE_OFFSET] === 0) continue;
+
             const start = this.controlAdapter.getUint32(i + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
             const size = (1 << this.controlBus[i + CAPACITY_OFFSET] >>> 0) * this.wordSize;
             const end = start + size;
+
             newDataBus.set(this.dataBus.subarray(start, end), this.dataPointer);
             this.controlAdapter.setUint32(i + ADDRESS_OFFSET, this.dataPointer, IS_LITTLE_ENDIAN);
             this.dataPointer += size;
         }
+
         this.dataBus = newDataBus;
         this.dataAdapter = new DataView(this.dataBus.buffer);
         this.auxiliary = new globalThis[`${this.bucketType}Array`](this.dataBus.buffer);
@@ -448,20 +467,24 @@ export default class Balloc {
     }
 
     // ========== SCALING ==========
+
     /**
      * [!!! INTERNAL USE, DO NOT USE IN YOUR CODE !!!]
      * Expands the `dataBus` to double its current capacity.
      *
      * The underlying buffer is transferred to a larger `ArrayBuffer`, preserving
-     * existing data. All views associated with the buffer are recreated to reference
-     * the new storage.
+     * existing data. All views associated with the buffer are recreated
+     * to reference the new storage.
      *
      * @returns {void}
-     * @throws {RangeError} If the `dataBus` capacity has exceeded the maximum
-     * supported limit.
+     * @throws {Error} If any block is borrowed via withView().
+     * @throws {RangeError} If the `dataBus` capacity has already exceeded the
+     * maximum supported limit.
      * @private
      */
     grow() {
+        this.assertNoActiveViews();
+
         if (this.size > 0x80000000) throw new RangeError("Data bus capacity exceeded");
 
         const newSize = (this.size * 2) >>> 0;
@@ -480,12 +503,12 @@ export default class Balloc {
      * Expands the `controlBus` to double its current capacity.
      *
      * The underlying buffer is transferred to a larger `ArrayBuffer`, preserving
-     * existing headers. The `controlAdapter` is recreated to reference the new
-     * storage.
+     * existing headers. The `controlAdapter` is recreated to reference
+     * the new storage.
      *
      * @returns {void}
-     * @throws {RangeError} If the current `controlBus` capacity has exceeded
-     * the maximum supported limit.
+     * @throws {RangeError} If the current `controlBus` capacity has already
+     * exceeded the maximum supported limit.
      * @private
      */
     headerGrow() {
@@ -500,48 +523,50 @@ export default class Balloc {
     // ========== STACK OPERATIONS ==========
 
     /**
-     * Appends an element to the end of the block's occupied sequence.
+     * Appends an element to the end of the sequence occupied by the block.
      *
      * The element is written at the first free position after the last occupied
-     * element. Block occupancy is incremented only when space is available within
-     * its capacity.
+     * element. Block occupancy is incremented only when space is available
+     * within its capacity.
      *
      * @param {number} handler - Block handle.
-     * @param {number} value - Value to insert.
+     * @param {number} value - Value to be inserted.
      * @returns {boolean} `true` if the value was inserted; `false` if the block
-     * has no available space.
-     * @throws {Error} If the handle is invalid or corrupted.
+     * is already out of available space.
+     * @throws {Error} If the handle is invalid, corrupted, or the block is borrowed via withView().
+     * 
      */
     push(handler, value) {
-
         const meta = this.extractMetadata(handler, this.metadata);
+        this.assertNotBorrowed(meta.headerAddress);
 
         if ((meta.occupied + 1) * this.wordSize > meta.byteCapacity) return false;
 
-        this.writer(meta.dataAddress + meta.occupied * this.wordSize , value, IS_LITTLE_ENDIAN);
-        this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied + 1,IS_LITTLE_ENDIAN);
+        this.writer(meta.dataAddress + meta.occupied * this.wordSize, value, IS_LITTLE_ENDIAN);
+        this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied + 1, IS_LITTLE_ENDIAN);
 
         return true;
     }
 
     /**
-     * Removes and returns the last occupied element from the block.
+     * Removes the last occupied element from the block and returns it.
      *
-     * Occupancy is decremented before reading the removed element. Corresponding
+     * Occupancy is decremented before reading the removed element. The corresponding
      * bytes are not cleared and remain in the allocated region, but cease to be
      * part of the occupied sequence.
      *
      * @param {number} handler - Block handle.
      * @returns {number|undefined} Removed value or `undefined` if the block
      * is empty.
-     * @throws {Error} If the handle is invalid or corrupted.
+     * @throws {Error} If the handle is invalid, corrupted, or the block is borrowed via withView().
      */
     pop(handler) {
         const meta = this.extractMetadata(handler, this.metadata);
+        this.assertNotBorrowed(meta.headerAddress);
 
         if (meta.occupied === 0) return undefined;
 
-        this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied - 1,IS_LITTLE_ENDIAN);
+        this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied - 1, IS_LITTLE_ENDIAN);
         return this.reader(meta.dataAddress + (meta.occupied - 1) * this.wordSize, IS_LITTLE_ENDIAN);
     }
 
@@ -566,52 +591,55 @@ export default class Balloc {
     /**
      * Inserts an element at the beginning of the occupied sequence.
      *
-     * Currently occupied elements are shifted one position forward and `value`
-     * is written to the first position. The operation requires a free position
-     * within the block's capacity.
+     * Currently occupied elements are shifted forward by one position and
+     * `value` is written at the first position. The operation requires a free
+     * position within the block's capacity.
      *
-     * The operation's cost is proportional to the number of occupied elements,
+     * The operation cost is proportional to the number of occupied elements,
      * as data needs to be shifted.
      *
      * @param {number} handler - Block handle.
-     * @param {number} value - Value to insert.
+     * @param {number} value - Value to be inserted.
      * @returns {boolean} `true` if the value was inserted; `false` if the block
      * is full.
-     * @throws {Error} If the handle is invalid or corrupted.
+     * @throws {Error} If the handle is invalid, corrupted, or the block is borrowed via withView().
      */
     nudge(handler, value) {
         const meta = this.extractMetadata(handler, this.metadata);
+        this.assertNotBorrowed(meta.headerAddress);
 
         if ((meta.occupied + 1) * this.wordSize > meta.byteCapacity) return false;
 
         this.dataBus.copyWithin(meta.dataAddress + this.wordSize, meta.dataAddress, meta.dataAddress + meta.occupied * this.wordSize);
         this.writer(meta.dataAddress, value, IS_LITTLE_ENDIAN);
-        this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied + 1,IS_LITTLE_ENDIAN);
+        this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied + 1, IS_LITTLE_ENDIAN);
 
         return true;
     }
 
     /**
-     * Removes and returns the first occupied element from the block.
+     * Removes the first occupied element from the block and returns it.
      *
-     * Remaining elements are shifted one position toward the beginning of the
-     * occupied region. The block's physical capacity remains unchanged.
+     * Remaining elements are shifted one position toward the beginning
+     * of the occupied region. The physical capacity of the block remains unchanged.
      *
-     * The operation's cost is proportional to the number of shifted elements.
+     * The operation cost is proportional to the number of shifted elements.
      *
      * @param {number} handler - Block handle.
      * @returns {number|undefined} First removed value or `undefined` if the
      * block is empty.
-     * @throws {Error} If the handle is invalid or corrupted.
+     * @throws {Error} If the handle is invalid, corrupted, or the block is borrowed via withView().
      */
     pull(handler) {
         const meta = this.extractMetadata(handler, this.metadata);
+        this.assertNotBorrowed(meta.headerAddress);
 
         if (meta.occupied === 0) return undefined;
 
         const result = this.reader(meta.dataAddress, IS_LITTLE_ENDIAN);
         this.dataBus.copyWithin(meta.dataAddress, meta.dataAddress + this.wordSize, meta.dataAddress + meta.occupied * this.wordSize);
         this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied - 1, IS_LITTLE_ENDIAN);
+
         return result;
     }
 
@@ -628,21 +656,21 @@ export default class Balloc {
 
         if (meta.occupied === 0) return undefined;
 
-        return this.reader(meta.dataAddress, IS_LITTLE_ENDIAN);    
+        return this.reader(meta.dataAddress, IS_LITTLE_ENDIAN);
     }
 
     // ========== RANDOM ACCESS ==========
 
     /**
-     * Checks if a value is present among the block's occupied elements.
+     * Checks if a value is present among the occupied elements of the block.
      *
      * The search is performed directly on the auxiliary `TypedArray` and considers
      * only the currently occupied range, not the entire reserved physical capacity.
      *
      * @param {number} handler - Block handle.
      * @param {number} value - Value to search for.
-     * @returns {boolean} `true` if `value` is present among the occupied elements;
-     * otherwise, `false`.
+     * @returns {boolean} `true` if `value` is present among the occupied
+     * elements; otherwise, `false`.
      * @throws {Error} If the handle is invalid or corrupted.
      */
     has(handler, value) {
@@ -658,21 +686,21 @@ export default class Balloc {
     /**
      * Locates the first occurrence of an element in the block's occupied sequence.
      *
-     * The search is performed in ascending index order, using the underlying
-     * TypedArray's `indexOf` operation. The search considers only occupied
-     * elements, ignoring the block's unused capacity.
+     * The search is performed in ascending order of indices, using the `indexOf`
+     * operation of the underlying TypedArray. The search exclusively considers
+     * occupied elements, ignoring the block's unused capacity.
      *
-     * The starting search position can be specified through `fromIndex`,
-     * following the TypedArray indexing rules.
+     * The starting search position can be specified by `fromIndex`,
+     * following TypedArray indexing rules.
      *
-     * @param {number} handler - Block handler.
+     * @param {number} handler - Block handle.
      * @param {number|bigint} searchElement - Element to locate.
-     * @param {number} [fromIndex=0] - Index at which the search begins.
-     * @returns {number} Index of the first occurrence, or `-1` if the
-     * element is not found or the block is empty.
-     * @throws {Error} If the handler is invalid or corrupted.
+     * @param {number} [fromIndex=0] - Index from which to start the search.
+     * @returns {number} Index of the first occurrence or `-1` if the
+     * element is not found or if the block is empty.
+     * @throws {Error} If the handle is invalid or corrupted.
      */
-    indexOf(handler, searchElement, fromIndex=0) {
+    indexOf(handler, searchElement, fromIndex = 0) {
         const meta = this.extractMetadata(handler, this.metadata);
 
         if (meta.occupied === 0) return -1;
@@ -685,22 +713,22 @@ export default class Balloc {
     /**
      * Locates the last occurrence of an element in the block's occupied sequence.
      *
-     * The search is performed in descending index order, using the underlying
-     * TypedArray's `lastIndexOf` operation. The search considers only occupied
-     * elements, ignoring the block's unused capacity.
+     * The search is performed in descending order of indices, using the `lastIndexOf`
+     * operation of the underlying TypedArray. The search exclusively considers
+     * occupied elements, ignoring the block's unused capacity.
      *
-     * The starting search position can be specified through `fromIndex`,
-     * following the TypedArray indexing rules. By default, the search starts
+     * The starting search position can be specified by `fromIndex`,
+     * following TypedArray indexing rules. By default, the search starts
      * at the last occupied element.
      *
-     * @param {number} handler - Block handler.
+     * @param {number} handler - Block handle.
      * @param {number|bigint} searchElement - Element to locate.
-     * @param {number} [fromIndex=-1] - Index at which the search begins.
-     * @returns {number} Index of the last occurrence, or `-1` if the
-     * element is not found or the block is empty.
-     * @throws {Error} If the handler is invalid or corrupted.
+     * @param {number} [fromIndex=-1] - Index from which to start the search.
+     * @returns {number} Index of the last occurrence or `-1` if the
+     * element is not found or if the block is empty.
+     * @throws {Error} If the handle is invalid or corrupted.
      */
-    lastIndexOf(handler, searchElement, fromIndex=-1) {
+    lastIndexOf(handler, searchElement, fromIndex = -1) {
         const meta = this.extractMetadata(handler, this.metadata);
 
         if (meta.occupied === 0) return -1;
@@ -710,18 +738,19 @@ export default class Balloc {
         return this.auxiliary.subarray(rawAddres, rawAddres + meta.occupied).lastIndexOf(searchElement, fromIndex);
     }
 
-     /**
-     * Returns the occupied element at a zero-based index.
-     *
-     * Indices outside the range `[0, occupied)` are not considered an error and
-     * result in `undefined`.
-     *
-     * @param {number} handler - Block handle.
-     * @param {number} index - Zero-based index of the element.
-     * @returns {number|undefined} Value stored at the index or `undefined` if
-     * the index is outside the occupied region.
-     * @throws {Error} If the handle is invalid or corrupted.
-     */
+
+    /**
+    * Returns the occupied element at a zero-based index.
+    *
+    * Indices outside the range `[0, occupied)` are not considered an error and
+    * result in `undefined`.
+    *
+    * @param {number} handler - Block handle.
+    * @param {number} index - Zero-based index of the element.
+    * @returns {number|undefined} Value stored at the index or `undefined` if
+    * the index is outside the occupied region.
+    * @throws {Error} If the handle is invalid or corrupted.
+    */
     get(handler, index) {
 
         const meta = this.extractMetadata(handler, this.metadata);
@@ -742,10 +771,11 @@ export default class Balloc {
      * @param {number} value - New value.
      * @returns {boolean} `true` if the value was written; `false` if the index
      * is outside the occupied region.
-     * @throws {Error} If the handle is invalid or corrupted.
+     * @throws {Error} If the handle is invalid, corrupted, or the block is borrowed via withView().
      */
     set(handler, index, value) {
         const meta = this.extractMetadata(handler, this.metadata);
+        this.assertNotBorrowed(meta.headerAddress);
 
         if (index < 0 || index >= meta.occupied) return false;
 
@@ -756,24 +786,26 @@ export default class Balloc {
     // ============= MISCELLANEOUS ===============
 
     /**
-     * Clears block occupancy and fills its entire physical capacity with a single value.
+     * Zeroes block occupancy and fills its entire physical capacity with
+     * a single value.
      *
-     * Filling covers all available slots, not just currently occupied elements.
-     * After the operation, the block is considered empty regardless of the value
-     * used for filling.
+     * The fill covers all available slots, not just currently
+     * occupied elements. After the operation, the block is considered
+     * empty regardless of the value used for filling.
      *
      * @param {number} handler - Block handle.
      * @param {number} [value=0] - Value used to fill all slots.
      * @returns {void}
-     * @throws {Error} If the handle is invalid or corrupted.
+     * @throws {Error} If the handle is invalid, corrupted, or the block is borrowed via withView().
      */
-    clear(handler, value=0) {
+    clear(handler, value = 0) {
         const meta = this.extractMetadata(handler, this.metadata);
+        this.assertNotBorrowed(meta.headerAddress);
 
         const slots = meta.byteCapacity / this.wordSize;
         const rawAddress = meta.dataAddress >>> this.wordShift;
 
-        this.auxiliary.fill(value, rawAddress, rawAddress + slots);        
+        this.auxiliary.fill(value, rawAddress, rawAddress + slots);
         this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, 0, IS_LITTLE_ENDIAN);
     }
 
@@ -781,26 +813,28 @@ export default class Balloc {
     /**
      * Fills a range of block slots with a value.
      *
-     * The range uses zero-based indices and follows the convention `[start, end)`,
-     * meaning `start` is inclusive and `end` is exclusive. When `end` is not provided,
-     * filling extends to the end of the block's physical capacity.
+     * The range uses zero-based indices and follows the convention
+     * `[start, end)`, therefore `start` is inclusive and `end` is exclusive.
+     * When `end` is not provided, filling extends to the end of the block's
+     * physical capacity.
      *
-     * Block occupancy becomes `end`, including when the filled range extends beyond
-     * the previous occupancy.
+     * Block occupancy becomes `end`, including when the filled range
+     * extends beyond previous occupancy.
      *
      * @param {number} handler - Block handle.
      * @param {number} value - Value used for filling.
      * @param {number} [start=0] - Initial index, inclusive.
-     * @param {number|null} [end=null] - Final index, exclusive. When omitted or
-     * `null`, uses the total block capacity.
+     * @param {number|null} [end=null] - Final index, exclusive. When
+     * omitted or `null`, uses the block's total capacity.
      * @returns {void}
-     * @throws {Error} If the handle is invalid or corrupted.
-     * @throws {RangeError} If `start` or `end` is out of capacity bounds, or if
-     * `start > end`.
+     * @throws {Error} If the handle is invalid, corrupted, or the block is borrowed via withView().
+     * @throws {RangeError} If `start` or `end` is outside capacity limits,
+     * or if `start > end`.
      */
     fill(handler, value, start = 0, end = null) {
         const meta = this.extractMetadata(handler, this.metadata);
-        
+        this.assertNotBorrowed(meta.headerAddress);
+
         const slots = meta.byteCapacity / this.wordSize;
         const lastIndex = end ?? slots;
 
@@ -815,7 +849,6 @@ export default class Balloc {
         }
 
         const rawAddress = meta.dataAddress >>> this.wordShift;
-
         this.auxiliary.fill(value, rawAddress + start, rawAddress + lastIndex);
         this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, lastIndex, IS_LITTLE_ENDIAN);
     }
@@ -824,16 +857,17 @@ export default class Balloc {
      * Fills all physical slots of the block with a value and marks the entire
      * capacity as occupied.
      *
-     * Unlike `clear()`, the operation results in a fully occupied block.
+     * Unlike `clear()`, this operation results in a fully occupied block.
      *
      * @param {number} handler - Block handle.
      * @param {number} value - Value used for filling.
      * @returns {void}
-     * @throws {Error} If the handle is invalid or corrupted.
+     * @throws {Error} If the handle is invalid, corrupted, or the block is borrowed via withView().
      */
     fillAll(handler, value) {
         const meta = this.extractMetadata(handler, this.metadata);
-        
+        this.assertNotBorrowed(meta.headerAddress);
+
         const rawAddress = meta.dataAddress >>> this.wordShift;
         const capacityElements = meta.byteCapacity / this.wordSize;
 
@@ -844,27 +878,26 @@ export default class Balloc {
     /**
      * Copies elements from an `Array` or `TypedArray` to the beginning of the block.
      *
-     * The copied quantity is limited by the block's capacity. Occupancy is updated
-     * to the greater value between the previous occupancy and the quantity effectively
-     * copied; therefore, a call to `put()` does not reduce existing occupancy when
-     * receiving a smaller sequence.
+     * The copied quantity is limited by the block's capacity. Occupancy is
+     * updated to the greater value between previous occupancy and the quantity
+     * effectively copied; therefore, a call to `put()` does not reduce existing
+     * occupancy when receiving a smaller sequence.
      *
-     * For `Array`, only the first fitting elements are copied. For `TypedArray`,
-     * a source subarray is used without intermediate copying.
+     * For `Array`, only the first elements that fit are copied.
+     * For `TypedArray`, a source subarray is used without intermediate copying.
      *
      * @param {number} handler - Block handle.
      * @param {Array|TypedArray} data - Sequence of values to copy.
      * @returns {void}
-     * @throws {Error} If the handle is invalid or corrupted.
+     * @throws {Error} If the handle is invalid, corrupted, or the block is borrowed via withView().
      * @throws {TypeError} If `data` is neither an `Array` nor a `TypedArray`.
      */
     put(handler, data) {
         const meta = this.extractMetadata(handler, this.metadata);
+        this.assertNotBorrowed(meta.headerAddress);
 
         const rawAddress = meta.dataAddress >>> this.wordShift;
         const length = Math.min(1 << meta.capacityExponent >>> 0, data.length);
-
-        meta.occupied = Math.max(length, meta.occupied);
 
         if (Array.isArray(data)) {
             this.auxiliary.set(data.slice(0, length), rawAddress);
@@ -873,34 +906,71 @@ export default class Balloc {
         } else {
             const actual = data?.constructor?.name ?? (data === null ? 'null' : typeof data);
             throw new TypeError(`data must be Array or TypedArray, but ${actual} was given.`);
-        }    
-        this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied, IS_LITTLE_ENDIAN);
+        }
+
+        this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, Math.max(length, meta.occupied), IS_LITTLE_ENDIAN);
     }
 
-     /**
-     * Returns a copy of the elements currently occupied by the block.
-     *
-     * The result is a `TypedArray` of the same type configured by `bucketSize`.
-     * Unoccupied physical capacity is not included in the result.
-     *
-     * The operation does not directly expose internal storage: the method uses
-     * `TypedArray.prototype.slice()`, producing a new view with independent storage.
-     *
-     * @param {number} handler - Block handle.
-     * @returns {TypedArray} Copy of the elements occupied by the block. When the
-     * block is empty, returns an empty `TypedArray` of the configured type.
-     * @throws {Error} If the handle is invalid or corrupted.
-     */
+    /**
+    * Returns a copy of the elements currently occupied by the block.
+    *
+    * The result is a `TypedArray` of the same type configured by
+    * `bucketSize`. Unoccupied physical capacity is not included in the result.
+    *
+    * The operation does not directly expose internal storage: the method
+    * uses `TypedArray.prototype.slice()`, producing a new view with
+    * independent storage.
+    *
+    * @param {number} handler - Block handle.
+    * @returns {TypedArray} Copy of elements occupied by the block. When
+    * the block is empty, returns an empty `TypedArray` of the configured type.
+    * @throws {Error} If the handle is invalid or corrupted.
+    */
     pick(handler) {
         const meta = this.extractMetadata(handler, this.metadata);
 
         const rawAddress = meta.dataAddress >>> this.wordShift;
 
         if (meta.occupied === 0) {
-            return this.auxiliary.slice(rawAddress, rawAddress); 
-        }        
+            return this.auxiliary.slice(rawAddress, rawAddress);
+        }
 
         return this.auxiliary.slice(rawAddress, rawAddress + meta.occupied);
+    }
+
+    /**
+     * Executes a callback over a direct view of the block's occupied region.
+     *
+     * The view shares Balloc's internal storage and performs no copying.
+     * The block is protected against incompatible operations during the callback.
+     *
+     * The callback must be synchronous. The received view must not be stored,
+     * returned, or used after the callback terminates. This restriction
+     * also applies to subviews derived from the original view.
+     *
+     * @param {number} handler - Block handle.
+     * @param {Function} callback - Function receiving the shared TypedArray.
+     * @returns {*} Return value produced by the callback.
+     * @throws {TypeError} If callback is not a function.
+     * @throws {Error} If the handle is invalid or already borrowed.
+     */
+    withView(handler, callback) {
+        if (typeof callback !== "function") throw new TypeError("callback must be a function");
+
+        const meta = this.extractMetadata(handler, this.metadata);
+        const flagsAddress = meta.headerAddress + FLAGS_OFFSET;
+        const flags = this.controlBus[flagsAddress];
+
+        if (flags & VIEW_LOCK) throw new Error("Block is already borrowed");
+
+        this.controlBus[flagsAddress] = flags | VIEW_LOCK;
+
+        try {
+            const rawAddress = meta.dataAddress >>> this.wordShift;
+            return callback(this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied));
+        } finally {
+            this.controlBus[flagsAddress] &= ~VIEW_LOCK;
+        }
     }
 
     // ======== CAPACITY IN SLOTS ==========
@@ -908,8 +978,8 @@ export default class Balloc {
     /**
      * Returns the physical capacity of the block in bytes.
      *
-     * Capacity corresponds to the space reserved for all slots in the block,
-     * regardless of how many elements are currently occupied.
+     * Capacity corresponds to the space reserved for all slots in the
+     * block, regardless of how many elements are currently occupied.
      *
      * @param {number} handler - Block handle.
      * @returns {number} Physical capacity of the block, in bytes.
@@ -927,16 +997,16 @@ export default class Balloc {
      * @returns {number} Number of occupied elements.
      * @throws {Error} If the handle is invalid or corrupted.
      */
-    occupied(handler){
+    occupied(handler) {
         const meta = this.extractMetadata(handler, this.metadata);
         return meta.occupied;
 
     }
 
     /**
-     * Returns the capacity of the block in number of elements.
+     * Returns the block's capacity in number of elements.
      *
-     * The value corresponds to the total quantity of physically reserved slots,
+     * The value corresponds to the total number of physically reserved slots,
      * not the currently occupied quantity.
      *
      * @param {number} handler - Block handle.
@@ -949,33 +1019,33 @@ export default class Balloc {
     }
 
     /**
-     * Determines whether the memory block has reached its allocation capacity.
+     * Checks if the memory block has reached its allocation capacity.
      *
-     * A block is considered full when the number of occupied elements equals
-     * its total allocated capacity, leaving no available positions for additional
-     * elements.
+     * A block is considered full when the number of occupied elements
+     * equals its total allocated capacity, leaving no positions available
+     * to store new elements.
      *
-     * @param {number} handler - Block handler.
+     * @param {number} handler - Block handle.
      * @returns {boolean} `true` if the block is full; otherwise, `false`.
-     * @throws {Error} If the handler is invalid or corrupted.
+     * @throws {Error} If the handle is invalid or corrupted.
      */
-    isFull(handler){
+    isFull(handler) {
         const meta = this.extractMetadata(handler, this.metadata);
-        return (1 << meta.capacityExponent >>> 0) -  meta.occupied === 0;
+        return (1 << meta.capacityExponent >>> 0) - meta.occupied === 0;
     }
 
-    // ========== Inter-block Operations =============
+    // ========== Operations between blocks=============
 
-    /**
+     /**
      * Copies occupied elements from one block to another.
      *
-     * Copying begins at the first element of `source` and the first slot of
-     * `destination`. The effectively copied quantity is limited by the number of occupied
-     * elements in the source, the destination's physical capacity, and the limit
-     * specified in `slots`.
+     * Copying starts at the first element of `source` and the first slot of
+     * `destination`. The quantity effectively copied is limited by the number of
+     * occupied elements in the source, the physical capacity of the destination, and the
+     * limit specified in `slots`.
      *
-     * Destination occupancy is increased, when necessary, to cover the copied
-     * elements. Destination capacity is not changed.
+     * Destination occupancy is increased, when necessary, to cover the
+     * copied elements. Destination capacity is unchanged.
      *
      * The operation uses `Uint8Array.prototype.copyWithin()` on the `dataBus`,
      * therefore the return value is the `Uint8Array` representing the data bus.
@@ -983,11 +1053,13 @@ export default class Balloc {
      * @param {number} source - Source block handle.
      * @param {number} destination - Destination block handle.
      * @param {number} [slots=UNKNOWN] - Maximum number of elements to copy.
-     * `UNKNOWN` represents the sentinel value used not to impose an additional limit.
+     * `UNKNOWN` represents the sentinel value used not to impose an
+     * additional limit.
      * @returns {Uint8Array} The `dataBus` after the operation.
-     * @throws {Error} If `source` or `destination` is invalid or corrupted.
+     * @throws {Error} If handles are invalid, corrupted,
+     * or the destination block is borrowed via withView().
      */
-    copy(source, destination, slots = UNKNOWN){
+    copy(source, destination, slots = UNKNOWN) {
         /** @type {Metadata} */
         const metaA = {};
         /** @type {Metadata} */
@@ -995,41 +1067,44 @@ export default class Balloc {
 
         this.extractMetadata(source, metaA);
         this.extractMetadata(destination, metaB);
+        this.assertNotBorrowed(metaB.headerAddress);
 
         const maxSlotsDest = Math.floor(metaB.byteCapacity / this.wordSize);
         const slotsToCopy = Math.min(metaA.occupied, maxSlotsDest, slots);
         const newOccupied = Math.max(metaB.occupied, slotsToCopy);
 
         this.controlAdapter.setUint32(metaB.headerAddress + OCCUPIED_OFFSET, newOccupied, IS_LITTLE_ENDIAN);
-
         return this.dataBus.copyWithin(metaB.dataAddress, metaA.dataAddress, metaA.dataAddress + slotsToCopy * this.wordSize);
     }
 
     /**
      * Copies a region of elements within the same block.
      *
-     * Indices are zero-based and follow the semantics of `Array.prototype.copyWithin()`:
-     * `target` identifies the destination position, `start` the source starting
-     * position, and `length` the maximum number of elements to copy.
+     * Indices are zero-based and follow the semantics of
+     * `Array.prototype.copyWithin()`: `target` identifies the destination position,
+     * `start` the starting source position, and `length` the maximum quantity of
+     * elements to copy.
      *
-     * Negative indices are interpreted from the end of the block's capacity. After
-     * this normalization, indices are clamped to physical capacity. The copied quantity
-     * is also limited by effectively occupied elements and available space from `target`.
+     * Negative indices are interpreted from the end of the block's capacity.
+     * After this normalization, indices are clamped to physical capacity.
+     * The copied quantity is also limited by effectively occupied elements
+     * and available space starting from `target`.
      *
      * The operation supports overlapping regions and can increase block occupancy
-     * when the target range exceeds current occupancy.
+     * when the destination range exceeds previous occupancy.
      *
      * @param {number} handler - Block handle.
      * @param {number} target - Initial destination index.
      * @param {number} start - Initial source index.
      * @param {number} length - Maximum number of elements to copy.
      * @returns {Uint8Array} The `dataBus` after the operation.
-     * @throws {Error} If the handle is invalid or corrupted.
+     * @throws {Error} If the handle is invalid, corrupted, or the block is borrowed via withView().
      */
     copyWithin(handler, target, start, length) {
         const meta = this.extractMetadata(handler, this.metadata);
-        const slots = Math.floor(meta.byteCapacity / this.wordSize);
+        this.assertNotBorrowed(meta.headerAddress);
 
+        const slots = Math.floor(meta.byteCapacity / this.wordSize);
         target = Math.trunc(target);
         start = Math.trunc(start);
         length = Math.trunc(length);
@@ -1037,12 +1112,9 @@ export default class Balloc {
         if (target < 0) target += slots;
         if (start < 0) start += slots;
 
-        // Clamps indices within capacity limits
         target = Math.max(0, Math.min(target, slots));
         start = Math.max(0, Math.min(start, slots));
 
-        // Limits copying to available space starting from target 
-        // and effectively occupied elements starting from start
         const maxRead = Math.max(0, meta.occupied - start);
         const maxWrite = slots - target;
         length = Math.max(0, Math.min(length, maxRead, maxWrite));
@@ -1051,9 +1123,8 @@ export default class Balloc {
 
         const targetAddress = meta.dataAddress + target * this.wordSize;
         const sourceAddress = meta.dataAddress + start * this.wordSize;
-
-        // Updates occupancy if the copy expands the block's occupied top
         const newOccupied = Math.max(meta.occupied, target + length);
+
         this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, newOccupied, IS_LITTLE_ENDIAN);
 
         return this.dataBus.copyWithin(targetAddress, sourceAddress, sourceAddress + length * this.wordSize);
@@ -1063,16 +1134,18 @@ export default class Balloc {
      * Appends occupied elements of `source` to the end of `target`.
      *
      * The copied quantity is limited by the number of occupied elements in the
-     * source and the remaining free space in the destination's capacity.
+     * source and remaining free space in the destination's capacity.
      *
      * The operation supports `target` and `source` referencing the same block.
-     * In that case, the copy is performed on the block's own region and preserves
-     * `copyWithin()` overlap semantics.
+     * In this case, copying is performed over the block's own region and
+     * preserves `copyWithin()` overlap semantics.
      *
-     * @param {number} target - Handle of the block that will receive the elements.
-     * @param {number} source - Handle of the block whose elements will be appended.
+     * @param {number} target - Handle of the block that will receive elements.
+     * @param {number} source - Handle of the block whose elements will be
+     * appended.
      * @returns {number} Number of elements effectively appended.
-     * @throws {Error} If `target` or `source` is invalid or corrupted.
+     * @throws {Error} If handles are invalid, corrupted,
+     * or the destination block is borrowed via withView().
      */
     append(target, source) {
         const metaTarget = {};
@@ -1080,6 +1153,7 @@ export default class Balloc {
 
         this.extractMetadata(target, metaTarget);
         this.extractMetadata(source, metaSource);
+        this.assertNotBorrowed(metaTarget.headerAddress);
 
         const available = metaTarget.byteCapacity / this.wordSize - metaTarget.occupied;
         const count = Math.min(available, metaSource.occupied);
@@ -1089,11 +1163,7 @@ export default class Balloc {
         const targetAddress = metaTarget.dataAddress + metaTarget.occupied * this.wordSize;
         const sourceAddress = metaSource.dataAddress;
 
-        if (target === source) {
-            this.dataBus.copyWithin(targetAddress, sourceAddress,  sourceAddress + count * this.wordSize);
-        } else {
-            this.dataBus.copyWithin(targetAddress, sourceAddress, sourceAddress + count * this.wordSize);
-        }
+        this.dataBus.copyWithin(targetAddress, sourceAddress, sourceAddress + count * this.wordSize);
 
         this.controlAdapter.setUint32(metaTarget.headerAddress + OCCUPIED_OFFSET, metaTarget.occupied + count, IS_LITTLE_ENDIAN);
 
@@ -1103,14 +1173,14 @@ export default class Balloc {
     /**
      * Creates an independent copy of a block.
      *
-     * The new block has the same physical capacity and occupancy as the original block.
-     * All bytes in the reserved region, including currently unoccupied positions,
-     * are copied.
+     * The new block has the same physical capacity and occupancy as the
+     * original block. All bytes in the reserved region, including currently
+     * unoccupied positions, are copied.
      *
-     * The new block receives a new handle and remains subject to normal allocation
-     * and recycling rules.
+     * The new block receives a new handle and remains subject to normal
+     * allocation and recycling rules.
      *
-     * @param {number} handler - Handle of the block to clone.
+     * @param {number} handler - Handle of the block to be cloned.
      * @returns {number} Handle of the new block.
      * @throws {Error} If the handle is invalid or corrupted.
      */
@@ -1130,27 +1200,32 @@ export default class Balloc {
     /**
      * Swaps the data regions associated with two blocks.
      *
-     * The operation swaps region addresses, capacities, and occupancies between headers.
-     * Handles remain unchanged: after the operation, each handle continues identifying
-     * its own header, but that header now describes the region previously belonging
-     * to the other block.
+     * The operation swaps region addresses, capacities, and occupancies
+     * between headers. Handles remain unchanged:
+     * after the operation, each handle continues identifying its own
+     * header, but that header now describes the region previously
+     * belonging to the other block.
      *
-     * No data is copied in the `dataBus`; only the metadata of the two headers
-     * is modified.
+     * No data is copied in the `dataBus`; only the metadata of the two
+     * headers is modified.
      *
      * @param {number} source - Handle of the first block.
      * @param {number} target - Handle of the second block.
      * @returns {void}
-     * @throws {Error} If `source` or `target` is invalid or corrupted.
+     * @throws {Error} If handles are invalid, corrupted,
+     * or either block is borrowed via withView().
      */
     swap(source, target) {
         /** @type {Metadata} */
         const metaA = {};
         /** @type {Metadata} */
         const metaB = {};
-        
+
         this.extractMetadata(source, metaA);
         this.extractMetadata(target, metaB);
+
+        this.assertNotBorrowed(metaA.headerAddress);
+        this.assertNotBorrowed(metaB.headerAddress);
 
         this.controlAdapter.setUint32(metaA.headerAddress + ADDRESS_OFFSET, metaB.dataAddress, IS_LITTLE_ENDIAN);
         this.controlAdapter.setUint32(metaB.headerAddress + ADDRESS_OFFSET, metaA.dataAddress, IS_LITTLE_ENDIAN);
@@ -1160,7 +1235,7 @@ export default class Balloc {
 
         this.controlAdapter.setUint32(metaA.headerAddress + OCCUPIED_OFFSET, metaB.occupied, IS_LITTLE_ENDIAN);
         this.controlAdapter.setUint32(metaB.headerAddress + OCCUPIED_OFFSET, metaA.occupied, IS_LITTLE_ENDIAN);
-    } 
+    }
 
 
     // ============= SERIALIZATION ==============
@@ -1168,11 +1243,11 @@ export default class Balloc {
     /**
      * Serializes the content and metadata of a memory block.
      *
-     * The method extracts occupied data from the block via `pick()`, groups them
-     * along with capacity and word type information into a data envelope, and encodes
-     * them using the CBOR format.
+     * The method extracts occupied block data via `pick()`,
+     * groups it alongside capacity and word type information
+     * into a data envelope, and encodes it using the CBOR format.
      *
-     * @param {number} handler - Handle of the block to serialize.
+     * @param {number} handler - Handle of the block to be serialized.
      * @returns {Uint8Array} A buffer containing the serialized block data.
      * @throws {Error} If the handle is invalid or corrupted.
      */
@@ -1205,13 +1280,13 @@ export default class Balloc {
      * Restores a memory block from serialized data.
      *
      * Decodes the CBOR envelope, validates whether the word type of the serialized
-     * data is compatible with the current allocator instance, and allocates a new
-     * block with the necessary capacity to accommodate the content. Then, the original
-     * data and occupancy are restored in the new block.
+     * data is compatible with the current allocator instance, and allocates
+     * a new block with the capacity required to accommodate the content.
+     * Then, original data and occupancy are restored in the new block.
      *
      * @param {Uint8Array|ArrayBuffer} serialized - Buffer containing serialized data.
      * @returns {number} Handle of the newly recreated block.
-     * @throws {Error} If the decoded data's word type differs from the one configured in the allocator.
+     * @throws {Error} If the decoded data's word type differs from the allocator's configuration.
      */
     load(serialized) {
         if (!(serialized instanceof ArrayBuffer) && !(serialized instanceof Uint8Array)) {
@@ -1267,21 +1342,55 @@ export default class Balloc {
     // ============= UTILITIES ==============
 
     /**
+     * Prevents modification operations on a borrowed block.
+     *
+     * Checks the VIEW_LOCK flag in the header associated with the provided address.
+     *
+     * @param {number} headerAddress - Address of the header in controlBus.
+     * @returns {void}
+     * @throws {Error} If the block is borrowed via withView().
+     * @private
+     */
+    assertNotBorrowed(headerAddress) {
+        if (this.controlBus[headerAddress + FLAGS_OFFSET] & VIEW_LOCK) {
+            throw new Error("Block is borrowed");
+        }
+    }
+
+    /**
+     * Prevents operations that replace or remap the dataBus
+     * while any segment is borrowed.
+     *
+     * @returns {void}
+     * @throws {Error} If any block is borrowed via withView().
+     * @private
+     */
+    assertNoActiveViews() {
+        for (let i = 0; i < this.controlPointer; i += HEADER_SIZE) {
+            if (this.controlBus[i + COOKIE_OFFSET] === 0) continue;
+            if (this.controlBus[i + FLAGS_OFFSET] & VIEW_LOCK) {
+                throw new Error("Cannot remap memory while a block is borrowed");
+            }
+        }
+    }
+
+    /**
      * [INTERNAL USE]
-     * Decodes the metadata associated with a handle.
+     * Decodes metadata associated with a handle.
      *
      * The handle is split into generation and header address. The cookie stored
      * in the header is then recalculated to validate the combination; only after
-     * this validation is metadata read.
+     * this validation are metadata read.
      *
-     * Decoded fields are written to the `out` object, which is returned by the function
-     * itself. The object can be reused across calls to avoid new allocations.
+     * Decoded fields are written to the `out` object, which is returned
+     * by the function itself. The object can be reused between calls to avoid
+     * new allocations.
      *
-     * @param {number} handler - Handle to decode and validate.
-     * @param {Metadata} out - Object that will receive the decoded metadata.
+     * @param {number} handler - Handle to be decoded and validated.
+     * @param {Metadata} out - Object that will receive decoded metadata.
      * @returns {Metadata} The same reference provided in `out`.
-     * @throws {Error} If the header cookie does not match the handle or if the
-     * handle does not identify a valid header.
+     * @throws {Error} If the header cookie does not match the handle or
+     * if the handle does not identify a valid header.
      * @private
      */
     extractMetadata(handler, out) {
@@ -1296,7 +1405,7 @@ export default class Balloc {
         }
 
         out.dataAddress = this.controlAdapter.getUint32(out.headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
-        out.capacityExponent  = this.controlAdapter.getUint8(out.headerAddress + CAPACITY_OFFSET);
+        out.capacityExponent = this.controlAdapter.getUint8(out.headerAddress + CAPACITY_OFFSET);
         out.byteCapacity = (1 << out.capacityExponent >>> 0) * this.wordSize;
         out.occupied = this.controlAdapter.getUint32(out.headerAddress + OCCUPIED_OFFSET, IS_LITTLE_ENDIAN);
 
@@ -1305,20 +1414,22 @@ export default class Balloc {
 
     /**
      * [INTERNAL USE]
-     * Calculates the validation cookie of a header.
+     * Calculates a header's validation cookie.
      *
-     * The cookie is derived from the header address and the 11-bit generation via
-     * fast hash. The result is reduced to 8 bits.
+     * The cookie is derived from the header address and the 11 generation bits via
+     * fast hash.
+     * The result is reduced to 8 bits.
      *
-     * The value zero is reserved as an invalid header indicator; therefore, when
-     * the calculation yields zero, the method returns `1`.
+     * The value zero is reserved as an invalid header indicator; therefore,
+     * when the calculation produces zero, the method returns `1`.
      *
-     * The cookie is not a cryptographic mechanism. Its purpose is to detect invalid,
-     * stale, or corrupted handles within the allocator's memory management model.
+     * The cookie does not constitute a cryptographic mechanism. Its purpose is
+     * to detect invalid, stale, or corrupted handles within the allocator's
+     * memory management model.
      *
      * @param {number} addr - Header address.
-     * @param {number} gen - Generation associated with the handle. Only the 11 least
-     * significant bits are considered.
+     * @param {number} gen - Generation associated with the handle. Only the 11
+     * least significant bits are considered.
      * @returns {number} 8-bit cookie in the range [1, 255].
      * @private
      */
@@ -1329,11 +1440,11 @@ export default class Balloc {
     /**
      * Returns the number of regions currently stored in the recycling list.
      *
-     * Each region corresponds to a freed block that could not be returned directly
-     * to the top of the `dataBus` and therefore remains available for reuse by a
-     * future allocation of identical capacity.
+     * Each region corresponds to a freed block that could not be returned
+     * directly to the top of the `dataBus` and, therefore, remains available for
+     * reuse by a future allocation of identical capacity.
      *
-     * @returns {number} Number of free regions maintained in `recycle`.
+     * @returns {number} Number of free regions kept in `recycle`.
      */
     recycleCount() {
         let count = 0;
@@ -1346,9 +1457,10 @@ export default class Balloc {
     }
 
     /**
-     * Returns the total bytes belonging to regions currently stored in the recycling list.
+     * Returns the total bytes belonging to regions currently stored in the
+     * recycling list.
      *
-     * The value is calculated by summing the capacity of each free region multiplied
+     * The value is calculated by summing each free region's capacity multiplied
      * by the number of regions registered for that capacity.
      *
      * @returns {number} Number of bytes occupied by recyclable regions.
@@ -1364,25 +1476,26 @@ export default class Balloc {
     }
 
     /**
-     * Returns the amount of allocated bytes that do not belong to currently recyclable regions.
+     * Returns the quantity of allocated bytes that do not belong to currently
+     * recyclable regions.
      *
-     * The value is obtained by subtracting the bytes belonging to free regions maintained
-     * in `recycle` from the total advance of `dataPointer`.
+     * The value is obtained by subtracting the bytes belonging to free regions
+     * kept in `recycle` from the total advance of `dataPointer`.
      *
-     * @returns {number} Number of bytes associated with non-recyclable regions within
-     * the area already used by the `dataBus`.
+     * @returns {number} Number of bytes associated with non-recyclable regions
+     * within the area already used by `dataBus`.
      */
     get allocatedBytes() {
         return this.dataPointer - this.recycleBytes;
     }
 
     /**
-     * Returns the amount of bytes not yet used at the top of the `dataBus`.
+     * Returns the quantity of bytes not yet used at the top of the `dataBus`.
      *
      * This space corresponds to the region between `dataPointer` and the end of the
      * capacity currently reserved for the buffer.
      *
-     * @returns {number} Number of available bytes after `dataPointer`.
+     * @returns {number} Number of bytes available after `dataPointer`.
      */
     get unallocatedBytes() {
         return this.size - this.dataPointer;
@@ -1391,13 +1504,13 @@ export default class Balloc {
     /**
      * Returns the ratio between recyclable memory and the used heap area.
      *
-     * The metric considers free regions maintained in `recycle` as fragmentation
-     * and uses `dataPointer` as the denominator. When no bytes have been used by the heap,
-     * the result is zero.
+     * The metric considers free regions kept in `recycle` as fragmentation
+     * and uses `dataPointer` as the denominator. When no bytes have been used
+     * by the heap, the result is zero.
      *
-     * The value does not represent the fraction of the entire `dataBus` capacity,
-     * but specifically the proportion of recyclable bytes within the area already
-     * traversed by the bump pointer.
+     * The value does not represent the fraction of the entire `dataBus` capacity, but
+     * specifically the proportion of recyclable bytes within the area already traversed
+     * by the bump pointer.
      *
      * @returns {number} Fragmentation ratio in the range [0, 1] under normal
      * operating conditions.

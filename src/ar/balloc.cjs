@@ -43,35 +43,37 @@ var ADDRESS_OFFSET = 0 >>> 0;
 var OCCUPIED_OFFSET = 4 >>> 0;
 var CAPACITY_OFFSET = 8 >>> 0;
 var COOKIE_OFFSET = 9 >>> 0;
+var FLAGS_OFFSET = 10 >>> 0;
+var VIEW_LOCK = 1 >>> 0;
 var ROTATE_32BITS = 4294967296;
 var CLAMP_11BITS = 2047 >>> 0;
 var isTypedArray = (val) => ArrayBuffer.isView(val) && !(val instanceof DataView);
 var Balloc = class {
   /**
-   * ينشئ مثيلًا من مخصص الذاكرة `Balloc`.
+   * ينشئ مثيلاً من مخصص الذاكرة `Balloc`.
    *
-   * يحتفظ المخصص بناقلين مستقلين:
+   * يحافظ المخصص على مخزنين مؤقتين مستقلين:
    * - `dataBus`: يخزن بيانات الكتل المخصصة؛
-   * - `controlBus`: يخزن الترويسات وبيانات التحكم الأخرى.
+   * - `controlBus`: يخزن التويسات (Headers) وبيانات التحكم الوصفية الأخرى.
    *
-   * كل كتلة لها ترويسة ذات حجم ثابت (`HEADER_SIZE`) ويتم تحديدها خارجيًا
-   * بواسطة مقبض منطقي بـ 43 بت، يتكون من جيل بـ 11 بت
-   * وعنوان ترويسة بـ 32 بت.
+   * تمتلك كل كتلة ترويسة ذات حجم ثابت (`HEADER_SIZE`) ويتم
+   * تعريفها خارجيًا بواسطة مقبض منطقي بـ 43 بتاً، يتكون
+   * من جيل بـ 11 بتاً وعنوان الترويسة الخاص بها بـ 32 بتاً.
    *
-   * يتم تقريب سعة كل كتلة لأقرب قوة للعدد اثنين
-   * من حيث العناصر، مع احترام عرض الحاوية المُكوّن.
+   * يتم تقريب سعة كل كتلة إلى أقرب قوة للعدد
+   * اثنين في العناصر، مع احترام عرض الحوية (Bucket) المُكوّنة.
    *
-   * @param {number} [size=65535] - السعة الأولية لـ `dataBus` بالبايت.
-   * يجب أن يكون عددًا صحيحًا آمنًا في النطاق [2, 0x80000000].
+   * @param {number} [size=65535] - السعة الأولية لـ `dataBus`، بالبايت.
+   * يجب أن يكون عدداً صحيحاً آمناً في النطاق [2, 0x80000000].
    * @param {BucketType} [bucketSize="32u"] - معرف نوع وحجم الحاوية
    * (مثل: '32u' لـ Uint32، '64f' لـ Float64، '8i' لـ Int8).
-   * @param {number} [metadataSize=1024] - السعة الأولية لـ `controlBus`
-   * بالبايت. يجب أن يكون عددًا صحيحًا آمنًا في النطاق
+   * @param {number} [metadataSize=1024] - السعة الأولية لـ `controlBus`،
+   * بالبايت. يجب أن يكون عدداً صحيحاً آمناً في النطاق
    * [HEADER_SIZE, 0x80000000].
    *
-   * @throws {RangeError} إذا كانت `size` خارج النطاق المسموح به.
-   * @throws {RangeError} إذا كانت `bucketSize` ليست معرف حاوية صالحًا.
-   * @throws {RangeError} إذا كانت `metadataSize` خارج النطاق المسموح به.
+   * @throws {RangeError} إذا كان `size` خارج النطاق المسموح به.
+   * @throws {RangeError} إذا لم يكن `bucketSize` معرف حاوية صالحاً.
+   * @throws {RangeError} إذا كان `metadataSize` خارج النطاق المسموح به.
    */
   constructor(size = 65535, bucketSize = "32u", metadataSize = 1024) {
     if (!Number.isSafeInteger(size) || size < 2 || size > 2147483648) throw new RangeError(`Parameter size must be in range [2, 0x80000000] but size is ${size}`);
@@ -108,28 +110,30 @@ var Balloc = class {
       occupied: 0 >>> 0
     };
   }
-  // ========== ALLOCATION ==========
+  // ========== التخصيص (ALLOCATION) ==========
   /**
    * يخصص كتلة ذاكرة جديدة.
    *
-   * يتم تحويل السعة المطلوبة إلى أصغر قوة للعدد اثنين
-   * تتسع لـ `size` من العناصر. يُفضل الحصول على الكتلة من قائمة
-   * المناطق القابلة لإعادة التدوير التي لها السعة المقابلة؛ وإذا لم توجد منطقة متوافقة،
-   * يتم حجز الكتلة في قمة `dataBus`.
+   * يتم تحويل السعة المطلوبة إلى أصغر قوة للعدد اثنين يمكنها
+   * استيعاب العناصر المحددة في `size`. يتم الحصول على الكتلة تفضيلياً من قائمة
+   * المناطق القابلة لإعادة التدوير ذات السعة المقابلة؛ وإذا لم تكن هناك
+   * منطقة متوافقة، يتم حجز الكتلة في قمة `dataBus`.
    *
-   * بعد ذلك، يتم الحصول على ترويسة من مساحة التحكم. يمكن إعادة استخدام الترويسات
-   * المُحررة مسبقًا عبر مكدس إعادة التدوير الداخلي؛ وإلا، يتم توسيع `controlBus`
-   * عند الضرورة.
+   * بعد ذلك، يتم الحصول على ترويسة من مساحة التحكم. يمكن إعادة استخدام الترويسات التي تم تحريرها مسبقاً
+   * عبر مكدس إعادة التدوير الداخلي؛
+   * وإلا، يتم توسيع `controlBus` عند الضرورة.
    *
-   * تتلقى الترويسة العنوان، السعة، الإشغال الأولي (صفر)، وكوكي التحقق (validation cookie).
-   * تشفر القيمة المُرجعة جيل التخصيص وعنوان الترويسة:
+   * تتلقى الترويسة العنوان، السعة، الإشغال الأولي (صفر)، وملف تعريف الارتباط (Cookie) للتحقق.
+   * القيمة المُعطاة تشفر جيل التخصيص وعنوان الترويسة:
    *
-   *     [11 بت للجيل][32 بت لعنوان الترويسة]
+   *     [11 بتاً للجيل][32 بتاً لعنوان الترويسة]
    *
-   * @param {number} [size=16] - الحد الأدنى لعدد العناصر التي يجب أن تتسع لها الكتلة.
-   * يجب أن يكون عددًا صحيحًا آمنًا في النطاق [2, 0x80000000].
-   * @returns {number} مقبض يحدد الكتلة المخصصة.
-   * @throws {RangeError} إذا كانت `size` خارج النطاق المسموح به.
+   * @param {number} [size=16] - الحد الأدنى لعدد العناصر التي يجب أن تستوعبها الكتلة.
+   * يجب أن يكون عدداً صحيحاً آمناً في النطاق [2, 0x80000000].
+   * @returns {number} المقبض الذي يحدد الكتلة المخصصة.
+   * @throws {RangeError} إذا كان `size` خارج النطاق المسموح به.
+   * @throws {Error} إذا كان من الضروري توسيع `dataBus` بينما توجد
+   * أي كتلة معارة بواسطة withView().
    */
   alloc(size = 16) {
     if (!Number.isSafeInteger(size) || size < 2 || size > 2147483648) throw new RangeError(`Parameter size must be in range [2, 0x80000000] but size is ${size}`);
@@ -155,31 +159,33 @@ var Balloc = class {
     this.controlAdapter.setUint32(headerAddress + OCCUPIED_OFFSET, 0, IS_LITTLE_ENDIAN);
     this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, capacity);
     this.controlAdapter.setUint8(headerAddress + COOKIE_OFFSET, this.bakeCookie(headerAddress, ++this.generation));
+    this.controlBus[headerAddress + FLAGS_OFFSET] = 0;
     return (this.generation & CLAMP_11BITS) * ROTATE_32BITS + headerAddress;
   }
   /**
    * يوسع سعة الكتلة إلى القوة التالية للعدد اثنين.
    *
-   * عندما تقع الكتلة في القمة الحالية لـ `dataBus`، يتم التوسيع
-   * في نفس المكان (in-place): يتم تحديث سعتها و `dataPointer` فقط.
+   * عندما تقع الكتلة في القمة الحالية لـ `dataBus`، يحدث التوسيع
+   * في الموقع (In-place): يتم تحديث سعتها ومؤشر `dataPointer` فقط.
    *
-   * إذا كانت هناك منطقة أخرى موجودة بعد الكتلة، يتم الحصول على منطقة جديدة بضعف
-   * السعة من المساحة القابلة لإعادة التدوير أو تخصيصها في قمة `dataBus`.
-   * ثم يتم نسخ العناصر المشغولة حاليًا إلى المنطقة الجديدة،
-   * وإرجاع المنطقة السابقة إلى قائمة إعادة التدوير.
+   * إذا كانت هناك منطقة أخرى بعد الكتلة، يتم الحصول على منطقة جديدة بسعة مضاعفة
+   * من المساحة القابلة لإعادة التدوير أو تخصيصها في قمة `dataBus`.
+   * يتم بعد ذلك نسخ العناصر المشغولة حالياً إلى المنطقة الجديدة،
+   * وإعادة المنطقة السابقة إلى قائمة إعادة التدوير.
    *
-   * يظل المقبض صالحًا لأن ترويسته محفوظة، ويتم تحديث العنوان
-   * والسعة المسجلين بداخله فقط.
+   * يظل المقبض صالحاً، حيث يتم الاحتفاظ بترويسته وتحديث
+   * العنوان والسعة المسجلين فيه فقط.
    *
    * @param {number} handler - مقبض الكتلة المراد توسيعها.
    * @returns {void}
-   * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
-   * @throws {AggregateError} إذا وصلت السعة إلى الحد الأقصى
-   * المدعوم.
+   * @throws {Error} إذا كان المقبض غير صالح، أو تالفاً، أو إذا كانت الكتلة
+   * معارة بواسطة withView(). يحدث أيضاً إذا تطلب التوسيع إعادة تعيين بيانات `dataBus`
+   * بينما توجد كتلة أخرى معارة.
+   * @throws {AggregateError} إذا وصلت السعة إلى الحد الأقصى المدعوم.
    */
   realloc(handler) {
     const generation = handler / ROTATE_32BITS & CLAMP_11BITS;
-    let headerAddress = handler >>> 0;
+    const headerAddress = handler >>> 0;
     const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
     const occupied = this.controlAdapter.getUint32(headerAddress + OCCUPIED_OFFSET, IS_LITTLE_ENDIAN);
     const capacity = this.controlAdapter.getUint8(headerAddress + CAPACITY_OFFSET);
@@ -187,48 +193,51 @@ var Balloc = class {
     if (cookie !== this.bakeCookie(headerAddress, generation)) {
       throw new Error("Invalid or corrupted handle");
     }
+    this.assertNotBorrowed(headerAddress);
     if (capacity >= 31) throw new AggregateError([new Error("Can\xB4t reallocate handler."), new RangeError("Capacity has reached its limit.")], "Internal Error.");
     const newCapacity = capacity + 1;
     const newBlockSize = (1 << newCapacity >>> 0) * this.wordSize;
     const oldBlockSize = (1 << capacity >>> 0) * this.wordSize;
     if (dataAddress + oldBlockSize === this.dataPointer) {
       while (dataAddress + newBlockSize > this.size) this.grow();
-      this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, newCapacity, IS_LITTLE_ENDIAN);
+      this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, newCapacity);
       this.dataPointer = dataAddress + newBlockSize;
       return;
     }
-    this.recyclePush(oldBlockSize, dataAddress);
     let newAddress = this.recyclePop(newBlockSize);
     if (newAddress === UNKNOWN) {
       while (this.dataPointer + newBlockSize > this.size) this.grow();
       newAddress = this.dataPointer;
       this.dataPointer += newBlockSize;
     }
-    this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, newCapacity);
     this.dataBus.copyWithin(newAddress, dataAddress, dataAddress + occupied * this.wordSize);
     this.controlAdapter.setUint32(headerAddress + ADDRESS_OFFSET, newAddress, IS_LITTLE_ENDIAN);
+    this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, newCapacity);
+    this.recyclePush(oldBlockSize, dataAddress);
   }
   /**
-   * يحرر كتلة ذاكرة.
-   *
-   * يتم إبطال ترويسة الكتلة بتسجيل كوكي الخاص بها إلى الصفر، وتسجيل عنوانها
-   * لإعادة استخدامه لاحقًا. كما يتم إرجاع منطقة البيانات إلى نظام إعادة التدوير،
-   * إلا إذا كانت الكتلة تقع تمامًا في قمة `dataBus`؛ في هذه الحالة،
-   * يتم التراجع عن `dataPointer` ببساطة، مما يلغي المنطقة دون إنشاء إدخال في قائمة إعادة التدوير.
-   *
-   * @param {number} handler - مقبض الكتلة المراد تحريرها.
-   * @returns {void}
-   * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
-   */
+  * يحرر كتلة ذاكرة.
+  *
+  * يتم إبطال ترويسة الكتلة عن طريق تصفير ملف تعريف الارتباط الخاص بها وتسجيل
+  * عنوانها لإعادة استخدامها لاحقاً. كما يتم إرجاع منطقة البيانات
+  * إلى نظام إعادة التدوير، إلا إذا كانت الكتلة في قمة `dataBus` تماماً؛
+  * في هذه الحالة، يتم التراجع عن `dataPointer` ببساطة، مما يلغي المنطقة دون إنشاء إدخال في قائمة إعادة التدوير.
+  *
+  * @param {number} handler - مقبض الكتلة المراد تحريرها.
+  * @returns {void}
+  * @throws {Error} إذا كان المقبض غير صالح، أو تالفاً، أو إذا كانت الكتلة
+  * معارة بواسطة withView().
+  */
   free(handler) {
     const generation = handler / ROTATE_32BITS & CLAMP_11BITS;
-    let headerAddress = handler >>> 0;
+    const headerAddress = handler >>> 0;
     const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
     const capacity = this.controlAdapter.getUint8(headerAddress + CAPACITY_OFFSET);
     const cookie = this.controlAdapter.getUint8(headerAddress + COOKIE_OFFSET);
     if (cookie !== this.bakeCookie(headerAddress, generation)) {
       throw new Error("Invalid or corrupted handle");
     }
+    this.assertNotBorrowed(headerAddress);
     const blockSize = (1 << capacity >>> 0) * this.wordSize;
     this.controlAdapter.setUint8(headerAddress + COOKIE_OFFSET, 0);
     if (this.echoPointer + 4 <= this.controlBus.byteLength) {
@@ -241,21 +250,21 @@ var Balloc = class {
       this.recyclePush(blockSize, dataAddress);
     }
   }
-  // ========== RECYCLING ==========
+  // ========== إعادة التدوير (RECYCLING) ==========
   /**
    * [استخدام داخلي]
    * يدخل منطقة حرة في قائمة إعادة التدوير.
    *
-   * يتم تنظيم القائمة حسب السعة بالبايت. لكل سعة، القيمة المخزنة
-   * هي `Uint32Array` يحتوي موضعها الصفري على عدد العناوين المسجلة،
-   * والمواضع اللاحقة تحتوي على عناوين المناطق الحرة:
+   * يتم تنظيم القائمة حسب السعة بالبايت. لكل سعة، القيمة
+   * المخزنة هي `Uint32Array` يحتوي موضعها الصفر على كمية
+   * العناوين المسجلة وتليها المواضع التي تحتوي على عناوين المناطق الحرة:
    *
-   *     [العدد، العنوان1، العنوان2، ...]
+   *     [count, address1, address2, ...]
    *
-   * عندما تمتتلئ الصفحة، يتم توسيع مخزنها المؤقت إلى ضعف السعة الحالية.
+   * عندما تمتلئ الصفحة، يتم توسيع المخزن المؤقت الخاص بها إلى ضعف السعة الحالية.
    *
-   * @param {number} capacity - سعة المنطقة الحرة بالبايت.
-   * @param {number} address - العنوان الأولي للمنطقة في `dataBus`.
+   * @param {number} capacity - سعة المنطقة الحرة، بالبايت.
+   * @param {number} address - العنوان الأولي للمطقة في `dataBus`.
    * @returns {void}
    * @private
    */
@@ -278,11 +287,11 @@ var Balloc = class {
    * [استخدام داخلي]
    * يزيل منطقة حرة من قائمة إعادة التدوير.
    *
-   * يتم إجراء البحث بواسطة السعة المطلوبة بالضبط. عندما توجد صفحة مقابلة،
-   * يتم إزالة العنوان المسجل الأخير من الصفحة وإرجاعه،
-   * مما ينفذ إعادة التدوير كمكدس LIFO (الأخير داخل، الأول خارج).
+   * يتم البحث بالسعة المطلوبة بدقة. عندما توجد صفحة
+   * مطابقة، يتم إزالة العنوان المسجل الأخير من الصفحة وإرجاعه،
+   * مما ينفذ إعادة التدوير كمكدس LIFO.
    *
-   * @param {number} capacity - السعة المطلوبة بالبايت.
+   * @param {number} capacity - السعة المطلوبة، بالبايت.
    * @returns {number} العنوان الأولي لمنطقة قابلة لإعادة التدوير أو `UNKNOWN`
    * عندما لا توجد منطقة بالسعة المطلوبة.
    * @private
@@ -296,29 +305,30 @@ var Balloc = class {
     page[0] = count - 1;
     return address;
   }
-  // ========== GARBAGE COLLECTION ==========
+  // ========== جمع النفايات (GARBAGE COLLECTION) ==========
   /**
    * يضغط `dataBus` باستخدام خوارزمية ReBump.
    *
-   * يجتاز الترويسات المسجلة في `controlBus` تسلسليًا وانسخ المناطق التي لا تزال صالحة
-   * إلى `dataBus` جديد، مما يلغي المساحات الحرة فيما بينها.
-   * يتم تحديث عنوان كل كتلة ناجية في ترويستها الخاصة.
+   * يمر تسلسلياً عبر الترويسات المسجلة في `controlBus` ونسخ
+   * المناطق التي لا تزال صالحة إلى `dataBus` جديد، مما يلغي المساحات الحرة
+   * الموجودة بينها. يتم تحديث عنوان كل كتلة باقية في الترويسة الخاصة بها.
    *
-   * يتم الحفاظ على ترتيب الكتل في `controlBus`. كما يتم الحفاظ بالكامل على البيانات الداخلية
-   * لكل كتلة، بما في ذلك سعتها المحجوزة وإشغالها الحالي.
+   * يتم الحفاظ على ترتيب الكتل في `controlBus`. كما يتم الاحتفاظ بالبيانات الداخلية
+   * لكل كتلة بالكامل، بما في ذلك سعتها المحجوزة وإشغالها الحالي.
    *
-   * في نهاية الضغط:
-   * - يتم إلغاء جميع المناطق القابلة لإعادة التدوير؛
-   * - يشير `dataPointer` إلى البايت الأول بعد آخر كتلة حية؛
-   * - يمثل `dataBus` كومة متجاورة (contiguous heap) للكتل النشطة.
+   * عند الانتهاء من الضغط:
+   * - يتم القضاء على جميع المناطق القابلة لإعادة التدوير؛
+   * - يتحول `dataPointer` للإشارة إلى أول بايت بعد آخر كتلة حية؛
+   * - يصبح `dataBus` ممثلاً لكومة (Heap) متجاورة للكتل النشطة.
    *
-   * تعقيد التحكم هو O(n)، حيث `n` هو عدد الترويسات التي تم اجتيازها.
-   * تعتمد التكلفة الفعلية لنقل الذاكرة أيضًا على حجم البايتات
-   * التي تنتمي إلى الكتل الحية.
+   * تعقيد التحكم هو O(n)، حيث `n` هو عدد الترويسات التي تم
+   * المرور عبرها. تكلفة نقل الذاكرة الفعلية تعتمد أيضاً على حجم البايتات التابعة للكتل الحية.
    *
    * @returns {void}
+   * @throws {Error} إذا كانت هناك أي كتلة معارة بواسطة withView().
    */
   gc() {
+    this.assertNoActiveViews();
     const newDataBus = new Uint8Array(this.dataBus.buffer.byteLength);
     this.recycle.clear();
     this.dataPointer = 0 >>> 0;
@@ -337,21 +347,22 @@ var Balloc = class {
     this.writer = this.dataAdapter[`set${this.bucketType}`].bind(this.dataAdapter);
     this.reader = this.dataAdapter[`get${this.bucketType}`].bind(this.dataAdapter);
   }
-  // ========== SCALING ==========
+  // ========== التحجيم (SCALING) ==========
   /**
    * [!!! استخدام داخلي، لا تستخدمه في كودك !!!]
-   * يوسع `dataBus` إلى ضعف سعتها الحالية.
+   * يوسع `dataBus` إلى ضعف سعته الحالية.
    *
    * يتم نقل المخزن المؤقت الأساسي إلى `ArrayBuffer` أكبر، مع الحفاظ
-   * على البيانات الموجودة. يتم إعادة إنشاء جميع العروض (views) المرتبطة بالمخزن المؤقت لتشير
-   * إلى التخزين الجديد.
+   * على البيانات الموجودة. يتم إعادة إنشاء جميع العروض (Views) المرتبطة بالمخزن المؤقت
+   * للإشارة إلى التخزين الجديد.
    *
    * @returns {void}
-   * @throws {RangeError} إذا تجاوزت سعة `dataBus` الحد الأقصى
-   * المدعوم.
+   * @throws {Error} إذا كانت هناك أي كتلة معارة بواسطة withView().
+   * @throws {RangeError} إذا تجاوزت سعة `dataBus` الحد الأقصى المدعوم.
    * @private
    */
   grow() {
+    this.assertNoActiveViews();
     if (this.size > 2147483648) throw new RangeError("Data bus capacity exceeded");
     const newSize = this.size * 2 >>> 0;
     const newBuffer = this.dataBus.buffer.transfer(newSize);
@@ -364,13 +375,14 @@ var Balloc = class {
   }
   /**
    * [!!! استخدام داخلي، لا تستخدمه في كودك !!!]
-   * يوسع `controlBus` إلى ضعف سعتها الحالية.
+   * يوسع `controlBus` إلى ضعف سعته الحالية.
    *
    * يتم نقل المخزن المؤقت الأساسي إلى `ArrayBuffer` أكبر، مع الحفاظ
-   * على الترويسات الموجودة. يتم إعادة إنشاء `controlAdapter` لتشير إلى التخزين الجديد.
+   * على الترويسات الموجودة. يتم إعادة إنشاء `controlAdapter` للإشارة
+   * إلى التخزين الجديد.
    *
    * @returns {void}
-   * @throws {RangeError} إذا تجاوزت سعة `controlBus` الحالية
+   * @throws {RangeError} إذا تجاوزت السعة الحالية لـ `controlBus`
    * الحد الأقصى المدعوم.
    * @private
    */
@@ -381,75 +393,81 @@ var Balloc = class {
     this.controlBus = new Uint8Array(newBuffer);
     this.controlAdapter = new DataView(newBuffer);
   }
-  // ========== STACK OPERATIONS ==========
+  // ========== عمليات المكدس (STACK OPERATIONS) ==========
   /**
-   * يلحق عنصرًا بنهاية تسلسل الكتلة المشغول.
+   * يضيف عنصراً إلى نهاية التسلسل المشغول بواسطة الكتلة.
    *
-   * يتم كتابة العنصر في أول موضع حر بعد آخر عنصر مشغول.
-   * يتم زيادة إشغال الكتلة فقط عندما تكون المساحة متاحة ضمن سعتها.
+   * يتم كتابة العنصر في أول موضع حر بعد آخر عنصر
+   * مشغول. يتم زيادة إشغال الكتلة فقط عندما تكون هناك مساحة
+   * متاحة ضمن سعتها.
    *
    * @param {number} handler - مقبض الكتلة.
-   * @param {number} value - القيمة المراد إضافتها.
-   * @returns {boolean} `true` إذا تم إدراج القيمة؛ `false` إذا لم يكن للكتلة
-   * مساحة متاحة.
-   * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
+   * @param {number} value - القيمة المراد إدراجها.
+   * @returns {boolean} `true` إذا تم إدراج القيمة؛ `false` إذا كانت الكتلة
+   * بلا مساحة متاحة.
+   * @throws {Error} إذا كان المقبض غير صالح، أو تالفاً، أو كانت الكتلة معارة بواسطة withView().
+   * 
    */
   push(handler, value) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     if ((meta.occupied + 1) * this.wordSize > meta.byteCapacity) return false;
     this.writer(meta.dataAddress + meta.occupied * this.wordSize, value, IS_LITTLE_ENDIAN);
     this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied + 1, IS_LITTLE_ENDIAN);
     return true;
   }
   /**
-   * يزيل ويُرجع العنصر المشغول الأخير من الكتلة.
+   * يزيل آخر عنصر مشغول من الكتلة ويرجعه.
    *
-   * يتم تقليل الإشغال قبل قراءة العنصر المُزال. البايتات المقابلة
-   * لا يتم مسحها وتظل في المنطقة المخصصة، لكنها تتوقف عن كونها
-   * جزءًا من التسلسل المشغول.
+   * يتم إنقاص الإشغال قبل قراءة العنصر المُزال. البايتات
+   * المقابلة لا يتم مسحها وتظل في المنطقة المخصصة، ولكنها تتوقف عن كونها
+   * جزءاً من التسلسل المشغول.
    *
    * @param {number} handler - مقبض الكتلة.
    * @returns {number|undefined} القيمة المُزالة أو `undefined` إذا كانت الكتلة
    * فارغة.
-   * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
+   * @throws {Error} إذا كان المقبض غير صالح، أو تالفاً، أو كانت الكتلة معارة بواسطة withView().
    */
   pop(handler) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     if (meta.occupied === 0) return void 0;
     this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied - 1, IS_LITTLE_ENDIAN);
     return this.reader(meta.dataAddress + (meta.occupied - 1) * this.wordSize, IS_LITTLE_ENDIAN);
   }
   /**
-   * يُرجع العنصر المشغول الأخير دون إزالته.
+   * يرجع آخر عنصر مشغول دون إزالته.
    *
    * @param {number} handler - مقبض الكتلة.
-   * @returns {number|undefined} القيمة المشغولة الأخيرة أو `undefined` إذا كانت
+   * @returns {number|undefined} آخر قيمة مشغولة أو `undefined` إذا كانت
    * الكتلة فارغة.
-   * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
+   * @throws {Error} إذا كان المقبض غير صالح أو تالفاً.
    */
   peek(handler) {
     const meta = this.extractMetadata(handler, this.metadata);
     if (meta.occupied === 0) return void 0;
     return this.reader(meta.dataAddress + (meta.occupied - 1) * this.wordSize, IS_LITTLE_ENDIAN);
   }
-  // ========== QUEUE OPERATIONS ==========
+  // ========== عمليات طابور الانتظار (QUEUE OPERATIONS) ==========
   /**
-   * يدرج عنصرًا في بداية التسلسل المشغول.
+   * يدخل عنصراً في بداية التسلسل المشغول.
    *
-   * يتم إزاحة العناصر المشغولة حاليًا بمقدار موضع واحد للأمام وتتم كتابة `value`
-   * في الموضع الأول. تتطلب العملية موضعًا حرًا ضمن سعة الكتلة.
+   * يتم إزاحة العناصر المشغولة حالياً بمقدار موضع واحد إلى
+   * الأمام وكتابة `value` في الموضع الأول. تتطلب العملية موقعاً
+   * حراً في سعة الكتلة.
    *
-   * تكلفة العملية تتناسب طرديًا مع عدد العناصر المشغولة،
-   * حيث تحتاج البيانات إلى إزاحة.
+   * تكلفة العملية تتناسب طردياً مع عدد العناصر المشغولة،
+   * لأن البيانات تحتاج إلى إزاحة.
    *
    * @param {number} handler - مقبض الكتلة.
    * @param {number} value - القيمة المراد إدراجها.
    * @returns {boolean} `true` إذا تم إدراج القيمة؛ `false` إذا كانت الكتلة
    * ممتلئة.
-   * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
+   * @throws {Error} إذا كان المقبض غير صالح، أو تالفاً، أو كانت الكتلة معارة بواسطة withView().
    */
   nudge(handler, value) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     if ((meta.occupied + 1) * this.wordSize > meta.byteCapacity) return false;
     this.dataBus.copyWithin(meta.dataAddress + this.wordSize, meta.dataAddress, meta.dataAddress + meta.occupied * this.wordSize);
     this.writer(meta.dataAddress, value, IS_LITTLE_ENDIAN);
@@ -457,20 +475,21 @@ var Balloc = class {
     return true;
   }
   /**
-   * يزيل ويُرجع العنصر المشغول الأول من الكتلة.
+   * يزيل أول عنصر مشغول من الكتلة ويرجعه.
    *
    * يتم إزاحة العناصر المتبقية بمقدار موضع واحد نحو بداية
-   * المنطقة المشغولة. تبقى السعة الفيزيائية للكتلة كما هي دون تغيير.
+   * المنطقة المشغولة. تبقى السعة الفيزيائية للكتلة دون تغيير.
    *
-   * تكلفة العملية تتناسب طرديًا مع عدد العناصر المزاحة.
+   * تكلفة العملية تتناسب طردياً مع عدد العناصر المُزاحة.
    *
    * @param {number} handler - مقبض الكتلة.
-   * @returns {number|undefined} القيمة الأولى المُزالة أو `undefined` إذا كانت
+   * @returns {number|undefined} أول قيمة مُزالة أو `undefined` إذا كانت
    * الكتلة فارغة.
-   * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
+   * @throws {Error} إذا كان المقبض غير صالح، أو تالفاً، أو كانت الكتلة معارة بواسطة withView().
    */
   pull(handler) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     if (meta.occupied === 0) return void 0;
     const result = this.reader(meta.dataAddress, IS_LITTLE_ENDIAN);
     this.dataBus.copyWithin(meta.dataAddress, meta.dataAddress + this.wordSize, meta.dataAddress + meta.occupied * this.wordSize);
@@ -478,30 +497,30 @@ var Balloc = class {
     return result;
   }
   /**
-   * يُرجع العنصر المشغول الأول دون إزالته.
+   * يرجع أول عنصر مشغول دون إزالته.
    *
    * @param {number} handler - مقبض الكتلة.
-   * @returns {number|undefined} القيمة المشغولة الأولى أو `undefined` إذا كانت
+   * @returns {number|undefined} أول قيمة مشغولة أو `undefined` إذا كانت
    * الكتلة فارغة.
-   * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
+   * @throws {Error} إذا كان المقبض غير صالح أو تالفاً.
    */
   head(handler) {
     const meta = this.extractMetadata(handler, this.metadata);
     if (meta.occupied === 0) return void 0;
     return this.reader(meta.dataAddress, IS_LITTLE_ENDIAN);
   }
-  // ========== RANDOM ACCESS ==========
+  // ========== الوصول العشوائي (RANDOM ACCESS) ==========
   /**
-   * يتحقق مما إذا كانت القيمة موجودة ضمن العناصر المشغولة للكتلة.
+   * يتحقق مما إذا كانت القيمة موجودة بين العناصر المشغولة للكتلة.
    *
-   * يتم إجراء البحث مباشرة على `TypedArray` المساعد ويأخذ في الاعتبار
-   * النطاق المشغول حاليًا فقط، وليس السعة الفيزيائية المحجوزة بالكامل.
+   * يتم البحث مباشرة على `TypedArray` المساعد ويأخذ في الاعتبار
+   * النطاق المشغول حالياً فقط، وليس كامل السعة الفيزيائية المحجوزة.
    *
    * @param {number} handler - مقبض الكتلة.
    * @param {number} value - القيمة المراد البحث عنها.
-   * @returns {boolean} `true` إذا كانت `value` موجودة بين العناصر المشغولة؛
-   * وإلا، `false`.
-   * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
+   * @returns {boolean} `true` إذا كانت `value` موجودة بين العناصر
+   * المشغولة؛ وإلا `false`.
+   * @throws {Error} إذا كان المقبض غير صالح أو تالفاً.
    */
   has(handler, value) {
     const meta = this.extractMetadata(handler, this.metadata);
@@ -510,21 +529,21 @@ var Balloc = class {
     return this.auxiliary.subarray(rawAddres, rawAddres + meta.occupied).includes(value);
   }
   /**
-   * يعثر على أول ظهور لعنصر في التسلسل المشغول للكتلة.
+   * يحدد موقع الظهور الأول لعنصر في التسلسل المشغول للكتلة.
    *
-   * يتم إجراء البحث بترتيب تصاعدي للفهرسة، باستخدام العملية
-   * `indexOf` الخاصة بـ TypedArray الأساسي. يقتصر البحث حصريًا
-   * على العناصر المشغولة، مع تجاهل السعة غير المستخدمة للكتلة.
+   * يتم إجراء البحث بترتيب تصاعدي للفهارس، باستخدام عملية `indexOf`
+   * الخاصة بـ TypedArray الأساسي. يأخذ البحث في الاعتبار حصرياً
+   * العناصر المشغولة، متجاهلاً السعة غير المستخدمة للكتلة.
    *
-   * يمكن تحديد موضع بدء البحث باستخدام `fromIndex`،
-   * وفقًا لقواعد الفهرسة الخاصة بـ TypedArray.
+   * يمكن تحديد موضع البدء للبحث بواسطة `fromIndex`،
+   * مع اتباع قواعد الفهرسة الخاصة بـ TypedArray.
    *
-   * @param {number} handler - معرّف الكتلة.
-   * @param {number|bigint} searchElement - العنصر المطلوب العثور عليه.
+   * @param {number} handler - مقبض الكتلة.
+   * @param {number|bigint} searchElement - العنصر المراد تحديد موقعه.
    * @param {number} [fromIndex=0] - الفهرس الذي يبدأ منه البحث.
-   * @returns {number} فهرس أول ظهور، أو `-1` إذا لم يتم العثور
-   * على العنصر أو إذا كانت الكتلة فارغة.
-   * @throws {Error} إذا كان معرّف الكتلة غير صالح أو تالفًا.
+   * @returns {number} فهرس الظهور الأول أو `-1` إذا لم يتم العثور على
+   * العنصر أو إذا كانت الكتلة فارغة.
+   * @throws {Error} إذا كان المقبض غير صالح أو تالفاً.
    */
   indexOf(handler, searchElement, fromIndex = 0) {
     const meta = this.extractMetadata(handler, this.metadata);
@@ -533,22 +552,22 @@ var Balloc = class {
     return this.auxiliary.subarray(rawAddres, rawAddres + meta.occupied).indexOf(searchElement, fromIndex);
   }
   /**
-   * يعثر على آخر ظهور لعنصر في التسلسل المشغول للكتلة.
+   * يحدد موقع الظهور الأخير لعنصر في التسلسل المشغول للكتلة.
    *
-   * يتم إجراء البحث بترتيب تنازلي للفهرسة، باستخدام العملية
-   * `lastIndexOf` الخاصة بـ TypedArray الأساسي. يقتصر البحث حصريًا
-   * على العناصر المشغولة، مع تجاهل السعة غير المستخدمة للكتلة.
+   * يتم إجراء البحث بترتيب تنازلي للفهارس، باستخدام عملية `lastIndexOf`
+   * الخاصة بـ TypedArray الأساسي. يأخذ البحث في الاعتبار حصرياً
+   * العناصر المشغولة، متجاهلاً السعة غير المستخدمة للكتلة.
    *
-   * يمكن تحديد موضع بدء البحث باستخدام `fromIndex`،
-   * وفقًا لقواعد الفهرسة الخاصة بـ TypedArray. افتراضيًا،
-   * يبدأ البحث من آخر عنصر مشغول.
+   * يمكن تحديد موضع البدء للبحث بواسطة `fromIndex`،
+   * مع اتباع قواعد الفهرسة الخاصة بـ TypedArray. افتراضياً، يبدأ البحث
+   * عند آخر عنصر مشغول.
    *
-   * @param {number} handler - معرّف الكتلة.
-   * @param {number|bigint} searchElement - العنصر المطلوب العثور عليه.
+   * @param {number} handler - مقبض الكتلة.
+   * @param {number|bigint} searchElement - العنصر المراد تحديد موقعه.
    * @param {number} [fromIndex=-1] - الفهرس الذي يبدأ منه البحث.
-   * @returns {number} فهرس آخر ظهور، أو `-1` إذا لم يتم العثور
-   * على العنصر أو إذا كانت الكتلة فارغة.
-   * @throws {Error} إذا كان معرّف الكتلة غير صالح أو تالفًا.
+   * @returns {number} فهرس الظهور الأخير أو `-1` إذا لم يتم العثور على
+   * العنصر أو إذا كانت الكتلة فارغة.
+   * @throws {Error} إذا كان المقبض غير صالح أو تالفاً.
    */
   lastIndexOf(handler, searchElement, fromIndex = -1) {
     const meta = this.extractMetadata(handler, this.metadata);
@@ -557,16 +576,16 @@ var Balloc = class {
     return this.auxiliary.subarray(rawAddres, rawAddres + meta.occupied).lastIndexOf(searchElement, fromIndex);
   }
   /**
-  * يُرجع العنصر المشغول عند فهرس يعتمد على الصفر (zero-based index).
+  * يرجع العنصر المشغول عند فهرس مبني على أساس الصفر.
   *
-  * الفهارس خارج النطاق `[0, occupied)` لا تُعتبر خطأ و
-  * تؤدي إلى إرجاع `undefined`.
+  * الفهارس خارج النطاق `[0, occupied)` لا تعتبر خطأ و
+  * تنتج `undefined`.
   *
   * @param {number} handler - مقبض الكتلة.
-  * @param {number} index - الفهرس المبدئي للصفر للعنصر.
+  * @param {number} index - الفهرس المبني على أساس الصفر للعنصر.
   * @returns {number|undefined} القيمة المخزنة في الفهرس أو `undefined` إذا كان
   * الفهرس خارج المنطقة المشغولة.
-  * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
+  * @throws {Error} إذا كان المقبض غير صالح أو تالفاً.
   */
   get(handler, index) {
     const meta = this.extractMetadata(handler, this.metadata);
@@ -577,63 +596,68 @@ var Balloc = class {
    * يستبدل القيمة المخزنة في فهرس مشغول.
    *
    * لا تغير العملية إشغال الكتلة. الفهارس خارج النطاق
-   * `[0, occupied)` يتم تجاهلها وتؤدي إلى إرجاع `false`.
+   * `[0, occupied)` يتم تجاهلها وتنتج `false`.
    *
    * @param {number} handler - مقبض الكتلة.
-   * @param {number} index - الفهرس المبدئي للصفر للعنصر.
+   * @param {number} index - الفهرس المبني على أساس الصفر للعنصر.
    * @param {number} value - القيمة الجديدة.
    * @returns {boolean} `true` إذا تم كتابة القيمة؛ `false` إذا كان الفهرس
    * خارج المنطقة المشغولة.
-   * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
+   * @throws {Error} إذا كان المقبض غير صالح، أو تالفاً، أو كانت الكتلة معارة بواسطة withView().
    */
   set(handler, index, value) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     if (index < 0 || index >= meta.occupied) return false;
     this.writer(meta.dataAddress + index * this.wordSize, value, IS_LITTLE_ENDIAN);
     return true;
   }
-  // ============= MISCELLANEOUS ===============
+  // ============= متفرقات (MISCELLANEOUS) ==============
   /**
-   * يمسح إشغال الكتلة ويملأ سعتها الفيزيائية بالكامل بقيمة واحدة.
+   * يصفر إشغال الكتلة ويملأ كامل سعتها الفيزيائية بـ
+   * نفس القيمة.
    *
-   * يغطي التعبئة جميع الفتحات المتاحة، وليس فقط العناصر المشغولة حاليًا.
-   * بعد العملية، تُعتبر الكتلة فارغة بغض النظر عن القيمة
-   * المستخدمة للتعبئة.
+   * يغطي الملء جميع الفتحات المتاحة، وليس فقط
+   * العناصر المشغولة حالياً. بعد العملية، تعتبر الكتلة
+   * فارغة بغض النظر عن القيمة المستخدمة في الملء.
    *
    * @param {number} handler - مقبض الكتلة.
    * @param {number} [value=0] - القيمة المستخدمة لملء جميع الفتحات.
    * @returns {void}
-   * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
+   * @throws {Error} إذا كان المقبض غير صالح، أو تالفاً، أو كانت الكتلة معارة بواسطة withView().
    */
   clear(handler, value = 0) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     const slots = meta.byteCapacity / this.wordSize;
     const rawAddress = meta.dataAddress >>> this.wordShift;
     this.auxiliary.fill(value, rawAddress, rawAddress + slots);
     this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, 0, IS_LITTLE_ENDIAN);
   }
   /**
-   * يملأ نطاقًا من فتحات الكتلة بقيمة.
+   * يملأ نطاقاً من فتحات الكتلة بقيمة.
    *
-   * يستخدم النطاق فهارس مبدئية للصفر ويتبع اصطلاح `[start, end)`،
-   * مما يعني أن `start` متضمن (inclusive) و `end` مستبعد (exclusive). عندما لا يتم توفير `end`،
-   * يمتد الملء إلى نهاية سعة الكتلة الفيزيائية.
+   * يستخدم النطاق فهارس مبنية على أساس الصفر ويتبع اصطلاح
+   * `[start, end)`، لذلك `start` مشمول و `end` غير مشمول.
+   * عندما لا يتم توفير `end`، يمتد الملء حتى نهاية
+   * السعة الفيزيائية للكتلة.
    *
-   * يصبح إشغال الكتلة مساويًا لـ `end`، بما في ذلك عندما يمتد النطاق المملوء إلى ما بعد
-   * الإشغال السابق.
+   * يصبح إشغال الكتلة هو `end`، حتى عندما يمتد النطاق
+   * الممتلئ إلى ما بعد الإشغال السابق.
    *
    * @param {number} handler - مقبض الكتلة.
-   * @param {number} value - القيمة المستخدمة للتعبئة.
-   * @param {number} [start=0] - الفهرس الأولي، متضمن.
-   * @param {number|null} [end=null] - الفهرس النهائي، مستبعد. عند حذفه أو
-   * جعله `null`، يستخدم إجمالي سعة الكتلة.
+   * @param {number} value - القيمة المستخدمة في الملء.
+   * @param {number} [start=0] - الفهرس الأولي، مشمول.
+   * @param {number|null} [end=null] - الفهرس النهائي، غير مشمول. عندما
+   * يتم تخطيه أو يكون `null`، يستخدم السعة الكلية للكتلة.
    * @returns {void}
-   * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
-   * @throws {RangeError} إذا كان `start` أو `end` خارج حدود السعة، أو إذا كان
-   * `start > end`.
+   * @throws {Error} إذا كان المقبض غير صالح، أو تالفاً، أو كانت الكتلة معارة بواسطة withView().
+   * @throws {RangeError} إذا كان `start` أو `end` خارج حدود
+   * السعة، أو إذا كان `start > end`.
    */
   fill(handler, value, start = 0, end = null) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     const slots = meta.byteCapacity / this.wordSize;
     const lastIndex = end ?? slots;
     if (start > lastIndex) {
@@ -650,18 +674,19 @@ var Balloc = class {
     this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, lastIndex, IS_LITTLE_ENDIAN);
   }
   /**
-   * يملأ جميع الفتحات الفيزيائية للكتلة بقيمة ويضع علامة على السعة بالكامل
-   * على أنها مشغولة.
+   * يملأ جميع الفتحات الفيزيائية للكتلة بقيمة ويضع علامة على كامل
+   * السعة على أنها مشغولة.
    *
    * على عكس `clear()`، تؤدي العملية إلى كتلة مشغولة بالكامل.
    *
    * @param {number} handler - مقبض الكتلة.
-   * @param {number} value - القيمة المستخدمة للتعبئة.
+   * @param {number} value - القيمة المستخدمة في الملء.
    * @returns {void}
-   * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
+   * @throws {Error} إذا كان المقبض غير صالح، أو تالفاً، أو كانت الكتلة معارة بواسطة withView().
    */
   fillAll(handler, value) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     const rawAddress = meta.dataAddress >>> this.wordShift;
     const capacityElements = meta.byteCapacity / this.wordSize;
     this.auxiliary.fill(value, rawAddress, rawAddress + capacityElements);
@@ -670,25 +695,26 @@ var Balloc = class {
   /**
    * ينسخ عناصر من `Array` أو `TypedArray` إلى بداية الكتلة.
    *
-   * الكمية المنسوخة محددة بسعة الكتلة. يتم تحديث الإشغال
-   * إلى القيمة الأكبر بين الإشغال السابق والكمية المنسوخة فعليًا؛
-   * لذلك، استدعاء `put()` لا يقلل الإشغال الحالي عند
-   * تلقي تسلسل أصغر.
+   * الكمية المنسوخة محدودة بسعة الكتلة. يتم تحديث الإشغال
+   * إلى القيمة الأكبر بين الإشغال السابق والكمية
+   * المنسوخة فعلياً؛ لذلك، لا يؤدي استدعاء `put()` إلى تقليل
+   * الإشغال الموجود عند تلقي تسلسل أصغر.
    *
-   * بالنسبة لـ `Array`، يتم نسخ العناصر الملائمة الأولى فقط. بالنسبة لـ `TypedArray`،
-   * يتم استخدام نطاق فرعي للمصدر دون نسخ وسيط.
+   * بالنسبة لـ `Array`، يتم نسخ العناصر الأولى التي تناسب فقط.
+   * بالنسبة لـ `TypedArray`، يتم استخدام مصفوفة فرعية (Subarray) من المصدر دون نسخ
+   * وسيط.
    *
    * @param {number} handler - مقبض الكتلة.
    * @param {Array|TypedArray} data - تسلسل القيم المراد نسخها.
    * @returns {void}
-   * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
-   * @throws {TypeError} إذا كانت `data` ليست `Array` ولا `TypedArray`.
+   * @throws {Error} إذا كان المقبض غير صالح، أو تالفاً، أو كانت الكتلة معارة بواسطة withView().
+   * @throws {TypeError} إذا لم تكن `data` عبارة عن `Array` ولا `TypedArray`.
    */
   put(handler, data) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     const rawAddress = meta.dataAddress >>> this.wordShift;
     const length = Math.min(1 << meta.capacityExponent >>> 0, data.length);
-    meta.occupied = Math.max(length, meta.occupied);
     if (Array.isArray(data)) {
       this.auxiliary.set(data.slice(0, length), rawAddress);
     } else if (isTypedArray(data)) {
@@ -697,21 +723,22 @@ var Balloc = class {
       const actual = data?.constructor?.name ?? (data === null ? "null" : typeof data);
       throw new TypeError(`data must be Array or TypedArray, but ${actual} was given.`);
     }
-    this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied, IS_LITTLE_ENDIAN);
+    this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, Math.max(length, meta.occupied), IS_LITTLE_ENDIAN);
   }
   /**
-  * يُرجع نسخة من العناصر المشغولة حاليًا بواسطة الكتلة.
+  * يرجع نسخة من العناصر المشغولة حالياً بواسطة الكتلة.
   *
-  * النتيجة هي `TypedArray` من نفس النوع المُكوّن بواسطة `bucketSize`.
-  * لا يتم تضمين السعة الفيزيائية غير المشغولة في النتيجة.
+  * النتيجة هي `TypedArray` من نفس النوع المُكوّن بواسطة
+  * `bucketSize`. لا يتم تضمين السعة الفيزيائية غير المشغولة في النتيجة.
   *
-  * لا تكشف العملية عن التخزين الداخلي بشكل مباشر: تستخدم الطريقة
-  * `TypedArray.prototype.slice()`، مما ينتج عنه عرض جديد بتخزين مستقل.
+  * لا تكشف العملية التخزين الداخلي مباشرة: يستخدم الأسلوب
+  * `TypedArray.prototype.slice()`، مما ينتج عرضاً جديداً مع
+  * تخزين مستقل.
   *
   * @param {number} handler - مقبض الكتلة.
-  * @returns {TypedArray} نسخة من العناصر المشغولة بواسطة الكتلة. عندما تكون
-  * الكتلة فارغة، تُرجع `TypedArray` فارغًا من النوع المُكوّن.
-  * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
+  * @returns {TypedArray} نسخة من العناصر المشغولة بواسطة الكتلة. عندما
+  * تكون الكتلة فارغة، يرجع `TypedArray` فارغاً من النوع المُكوّن.
+  * @throws {Error} إذا كان المقبض غير صالح أو تالفاً.
   */
   pick(handler) {
     const meta = this.extractMetadata(handler, this.metadata);
@@ -721,87 +748,121 @@ var Balloc = class {
     }
     return this.auxiliary.slice(rawAddress, rawAddress + meta.occupied);
   }
-  // ======== CAPACITY IN SLOTS ==========
   /**
-   * يُرجع السعة الفيزيائية للكتلة بالبايت.
+   * ينفذ دالة رد اتصال (Callback) على عرض مباشر للمنطقة المشغولة بواسطة الكتلة.
    *
-   * تتوافق السعة مع المساحة المحجوزة لجميع الفتحات في الكتلة،
-   * بغض النظر عن عدد العناصر المشغولة حاليًا.
+   * يشترك العرض في التخزين الداخلي لـ Balloc ولا يقوم بالنسخ.
+   * تتم حماية الكتلة ضد العمليات غير المتوافقة أثناء دالة رد الاتصال.
+   *
+   * يجب أن تكون دالة رد الاتصال متزامنة (Synchronous). يجب عدم تخزين العرض المُستلم،
+   * أو إرجاعه، أو استخدامه بعد انتهاء دالة رد الاتصال. ينطبق هذا القيد أيضاً
+   * على العروض الفرعية (Subviews) المشتقة من العرض الأصلي.
    *
    * @param {number} handler - مقبض الكتلة.
-   * @returns {number} السعة الفيزيائية للكتلة بالبايت.
-   * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
+   * @param {Function} callback - الدالة التي تتلقى TypedArray المشترك.
+   * @returns {*} القيمة المُرجعة بواسطة دالة رد الاتصال.
+   * @throws {TypeError} إذا لم تكن دالة رد الاتصال دالة.
+   * @throws {Error} إذا كان المقبض غير صالح أو معاراً مسبقاً.
+   */
+  withView(handler, callback) {
+    if (typeof callback !== "function") throw new TypeError("callback must be a function");
+    const meta = this.extractMetadata(handler, this.metadata);
+    const flagsAddress = meta.headerAddress + FLAGS_OFFSET;
+    const flags = this.controlBus[flagsAddress];
+    if (flags & VIEW_LOCK) throw new Error("Block is already borrowed");
+    this.controlBus[flagsAddress] = flags | VIEW_LOCK;
+    try {
+      const rawAddress = meta.dataAddress >>> this.wordShift;
+      return callback(this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied));
+    } finally {
+      this.controlBus[flagsAddress] &= ~VIEW_LOCK;
+    }
+  }
+  // ======== السعة بالفتحات (CAPACITY IN SLOTS) ==========
+  /**
+   * يرجع السعة الفيزيائية للكتلة بالبايت.
+   *
+   * تتوافق السعة مع المساحة المحجوزة لجميع فتحات
+   * الكتلة، بغض النظر عن عدد العناصر المشغولة حالياً.
+   *
+   * @param {number} handler - مقبض الكتلة.
+   * @returns {number} السعة الفيزيائية للكتلة، بالبايت.
+   * @throws {Error} إذا كان المقبض غير صالح أو تالفاً.
    */
   byteSize(handler) {
     const meta = this.extractMetadata(handler, this.metadata);
     return meta.byteCapacity;
   }
   /**
-   * يُرجع عدد العناصر المشغولة حاليًا في الكتلة.
+   * يرجع كمية العناصر المشغولة حالياً في الكتلة.
    *
    * @param {number} handler - مقبض الكتلة.
    * @returns {number} عدد العناصر المشغولة.
-   * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
+   * @throws {Error} إذا كان المقبض غير صالح أو تالفاً.
    */
   occupied(handler) {
     const meta = this.extractMetadata(handler, this.metadata);
     return meta.occupied;
   }
   /**
-   * يُرجع سعة الكتلة بعدد العناصر.
+   * يرجع سعة الكتلة بعدد العناصر.
    *
-   * تتوافق القيمة مع الكمية الإجمالية للفتحات المحجوزة فيزيائيًا،
-   * وليست الكمية المشغولة حاليًا.
+   * تتوافق القيمة مع الإجمالي لعدد الفتحات المحجوزة فيزيائياً،
+   * وليس الكمية المشغولة حالياً.
    *
    * @param {number} handler - مقبض الكتلة.
    * @returns {number} العدد الإجمالي للفتحات المتاحة في الكتلة.
-   * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
+   * @throws {Error} إذا كان المقبض غير صالح أو تالفاً.
    */
   length(handler) {
     const meta = this.extractMetadata(handler, this.metadata);
     return 1 << meta.capacityExponent >>> 0;
   }
   /**
-   * يتحقق مما إذا كانت كتلة الذاكرة قد بلغت سعتها المخصصة.
+   * يتحقق مما إذا كانت كتلة الذاكرة قد وصلت إلى سعة تخصيصها.
    *
-   * تُعتبر الكتلة ممتلئة عندما يكون عدد العناصر المشغولة مساويًا
-   * لسعتها الإجمالية المخصصة، بحيث لا تبقى أي مواضع متاحة
-   * لتخزين عناصر إضافية.
+   * تعتبر الكتلة ممتلئة عندما يكون عدد العناصر المشغولة
+   * مساوياً لسعتها الإجمالية المخصصة، وعدم تبقي أي مواضع متاحة
+   * لتخزين عناصر جديدة.
    *
-   * @param {number} handler - معرّف الكتلة.
+   * @param {number} handler - مقبض الكتلة.
    * @returns {boolean} `true` إذا كانت الكتلة ممتلئة؛ وإلا `false`.
-   * @throws {Error} إذا كان معرّف الكتلة غير صالح أو تالفًا.
+   * @throws {Error} إذا كان المقبض غير صالح أو تالفاً.
    */
   isFull(handler) {
     const meta = this.extractMetadata(handler, this.metadata);
     return (1 << meta.capacityExponent >>> 0) - meta.occupied === 0;
   }
-  // ========== Inter-block Operations =============
+  // ========== العمليات بين الكتل (Operations between blocks)=============
   /**
-   * ينسخ العناصر المشغولة من كتلة إلى أخرى.
-   *
-   * يبدأ النسخ من العنصر الأول لـ `source` وأول فتحة لـ `destination`.
-   * الكمية المنسوخة فعليًا محددة بعدد العناصر المشغولة في المصدر،
-   * السعة الفيزيائية للوجهة، والحد المحدد في `slots`.
-   *
-   * يتم زيادة إشغال الوجهة، عند الضرورة، لتغطية العناصر المنسوخة.
-   * لا تتغير سعة الوجهة.
-   *
-   * تستخدم العملية `Uint8Array.prototype.copyWithin()` على `dataBus`،
-   * وبالتالي تكون القيمة المُرجعة هي `Uint8Array` التي تمثل ناقل البيانات.
-   *
-   * @param {number} source - مقبض كتلة المصدر.
-   * @param {number} destination - مقبض كتلة الوجهة.
-   * @param {number} [slots=UNKNOWN] - الحد الأقصى لعدد العناصر المراد نسخها.
-   * يمثل `UNKNOWN` قيمة الحراسة المستخدمة لعدم فرض حد إضافي.
-   * @returns {Uint8Array} ناقل البيانات (`dataBus`) بعد العملية.
-   * @throws {Error} إذا كانت `source` أو `destination` غير صالحة أو تالفة.
-   */
+  * ينسخ العناصر المشغولة من كتلة إلى أخرى.
+  *
+  * يبدأ النسخ عند العنصر الأول من `source` وأول فتحة من
+  * `destination`. الكمية المنسوخة فعلياً محدودة بعدد العناصر
+  * المشغولة في المصدر، والسعة الفيزيائية للوجهة، والحد
+  * المحدد في `slots`.
+  *
+  * يتم رفع إشغال الوجهة، عند الضرورة، لتغطية العناصر
+  * المنسوخة. لا يتم تغيير سعة الوجهة.
+  *
+  * تستخدم العملية `Uint8Array.prototype.copyWithin()` على `dataBus`،
+  * لذلك النتيجة هي `Uint8Array` نفسها التي تمثل ناقل البيانات.
+  *
+  * @param {number} source - مقبض كتلة المصدر.
+  * @param {number} destination - مقبض كتلة الوجهة.
+  * @param {number} [slots=UNKNOWN] - الحد الأقصى لعدد العناصر المراد نسخها.
+  * `UNKNOWN` يمثل القيمة الحارسة المستخدمة لعدم فرض حد
+  * إضافي.
+  * @returns {Uint8Array} ناقل البيانات `dataBus` بعد العملية.
+  * @throws {Error} إذا كانت المقابض غير صالحة، أو تالفة،
+  * أو كانت كتلة الوجهة معارة بواسطة withView().
+  */
   copy(source, destination, slots = UNKNOWN) {
     const metaA = {};
     const metaB = {};
     this.extractMetadata(source, metaA);
     this.extractMetadata(destination, metaB);
+    this.assertNotBorrowed(metaB.headerAddress);
     const maxSlotsDest = Math.floor(metaB.byteCapacity / this.wordSize);
     const slotsToCopy = Math.min(metaA.occupied, maxSlotsDest, slots);
     const newOccupied = Math.max(metaB.occupied, slotsToCopy);
@@ -809,28 +870,30 @@ var Balloc = class {
     return this.dataBus.copyWithin(metaB.dataAddress, metaA.dataAddress, metaA.dataAddress + slotsToCopy * this.wordSize);
   }
   /**
-       * ينسخ منطقة من العناصر داخل نفس الكتلة.
-       *
-       * الفهارس مبدئية للصفر وتتبع دلالات `Array.prototype.copyWithin()`:
-       * يحدد `target` موضع الوجهة، و `start` موضع بدء المصدر،
-       * و `length` الحد الأقصى لعدد العناصر المراد نسخها.
-       *
-       * الفهارس السالبة يتم تفسيرها من نهاية سعة الكتلة. بعد
-       * هذا التطبيع، يتم تقييد الفهارس بحدود السعة الفيزيائية. الكمية المنسوخة
-  5     * مقيدة أيضًا بالعناصر المشغولة فعليًا والمساحة المتاحة من `target`.
-       *
-       * تدعم العملية المناطق المتداخلة ويمكنها زيادة إشغال الكتلة
-       * عندما يتجاوز نطاق الوجهة الإشغال الحالي.
-       *
-       * @param {number} handler - مقبض الكتلة.
-       * @param {number} target - فهرس الوجهة الأولي.
-       * @param {number} start - فهرس المصدر الأولي.
-       * @param {number} length - الحد الأقصى لعدد العناصر المراد نسخها.
-       * @returns {Uint8Array} ناقل البيانات (`dataBus`) بعد العملية.
-       * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
-       */
+   * ينسخ منطقة من العناصر داخل الكتلة نفسها.
+   *
+   * الفهارس مبنية على أساس الصفر وتتبع دلالات
+   * `Array.prototype.copyWithin()`: يحدد `target` موضع الوجهة،
+   * ويمثل `start` الموضع الأولي للمصدر و `length` الحد الأقصى لعدد
+   * العناصر المراد نسخها.
+   *
+   * الفهارس السالبة تُفسر من نهاية سعة الكتلة.
+   * بعد هذا التطبيع، يتم تقييد الفهارس بالسعة الفيزيائية. كما أن الكمية المنسوخة محدودة أيضاً بالعناصر
+   * المشغولة فعلياً والمساحة المتاحة بدءاً من `target`.
+   *
+   * تدعم العملية المناطق المتداخلة ويمكن أن تزيد إشغال الكتلة
+   * عندما يتجاوز نطاق الوجهة الإشغال الحالي.
+   *
+   * @param {number} handler - مقبض الكتلة.
+   * @param {number} target - الفهرس الأولي للوجهة.
+   * @param {number} start - الفهرس الأولي للمصدر.
+   * @param {number} length - الحد الأقصى لعدد العناصر المراد نسخها.
+   * @returns {Uint8Array} ناقل البيانات `dataBus` بعد العملية.
+   * @throws {Error} إذا كان المقبض غير صالح، أو تالفاً، أو كانت الكتلة معارة بواسطة withView().
+   */
   copyWithin(handler, target, start, length) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     const slots = Math.floor(meta.byteCapacity / this.wordSize);
     target = Math.trunc(target);
     start = Math.trunc(start);
@@ -852,48 +915,47 @@ var Balloc = class {
   /**
    * يلحق العناصر المشغولة لـ `source` بنهاية `target`.
    *
-   * الكمية المنسوخة مقيدة بعدد العناصر المشغولة في المصدر
-   * والمساحة الحرة المتبقية في سعة الوجهة.
+   * الكمية المنسوخة محدودة بعدد العناصر المشغولة في
+   * المصدر والمساحة الحرة المتبقية في سعة الوجهة.
    *
-   * تدعم العملية أن تشير `target` و `source` إلى نفس الكتلة.
-   * في هذه الحالة، يتم تنفيذ النسخ على منطقة الكتلة نفسها ويحافظ على
-   * دلالات التداخل لـ `copyWithin()`.
+   * تدعم العملية إشارة `target` و `source` إلى نفس الكتلة.
+   * في هذه الحالة، يتم تنفيذ النسخ على منطقة الكتلة نفسها
+   * ويحافظ على دلالات التداخل لـ `copyWithin()`.
    *
    * @param {number} target - مقبض الكتلة التي ستستقبل العناصر.
    * @param {number} source - مقبض الكتلة التي سيتم إلحاق عناصرها.
-   * @returns {number} عدد العناصر المُلحقة فعليًا.
-   * @throws {Error} إذا كانت `target` أو `source` غير صالحة أو تالفة.
+   * @returns {number} عدد العناصر المُلحقة فعلياً.
+   * @throws {Error} إذا كانت المقابض غير صالحة، أو تالفة،
+   * أو كانت كتلة الوجهة معارة بواسطة withView().
    */
   append(target, source) {
     const metaTarget = {};
     const metaSource = {};
     this.extractMetadata(target, metaTarget);
     this.extractMetadata(source, metaSource);
+    this.assertNotBorrowed(metaTarget.headerAddress);
     const available = metaTarget.byteCapacity / this.wordSize - metaTarget.occupied;
     const count = Math.min(available, metaSource.occupied);
     if (count === 0) return 0;
     const targetAddress = metaTarget.dataAddress + metaTarget.occupied * this.wordSize;
     const sourceAddress = metaSource.dataAddress;
-    if (target === source) {
-      this.dataBus.copyWithin(targetAddress, sourceAddress, sourceAddress + count * this.wordSize);
-    } else {
-      this.dataBus.copyWithin(targetAddress, sourceAddress, sourceAddress + count * this.wordSize);
-    }
+    this.dataBus.copyWithin(targetAddress, sourceAddress, sourceAddress + count * this.wordSize);
     this.controlAdapter.setUint32(metaTarget.headerAddress + OCCUPIED_OFFSET, metaTarget.occupied + count, IS_LITTLE_ENDIAN);
     return count;
   }
   /**
    * ينشئ نسخة مستقلة من الكتلة.
    *
-   * تمتلك الكتلة الجديدة نفس السعة الفيزيائية والإشغال للكتلة الأصلية.
-   * يتم نسخ جميع البايتات في المنطقة المحجوزة، بما في ذلك المواضع غير المشغولة حاليًا.
+   * تمتلك الكتلة الجديدة نفس السعة الفيزيائية ونفس الإشغال الخاص
+   * بالكتلة الأصلية. يتم نسخ جميع بايتات المنطقة المحجوزة، بما في ذلك المواضع
+   * غير المشغولة حالياً.
    *
-   * تتلقى الكتلة الجديدة مقبضًا جديدًا وتظل خاضعة لقواعد التخصيص
-   * وإعادة التدوير العادية.
+   * تتلقى الكتلة الجديدة مقبضاً جديداً وتظل خاضعة لقواعد
+   * التخصيص وإعادة التدوير العادية.
    *
    * @param {number} handler - مقبض الكتلة المراد استنساخها.
    * @returns {number} مقبض الكتلة الجديدة.
-   * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
+   * @throws {Error} إذا كان المقبض غير صالح أو تالفاً.
    */
   clone(handler) {
     const meta = this.extractMetadata(handler, this.metadata);
@@ -907,23 +969,27 @@ var Balloc = class {
   /**
    * يتبادل مناطق البيانات المرتبطة بكتلتين.
    *
-   * تتبادل العملية عناوين المناطق، السعات، والإشغالات بين الترويسات.
-   * تظل المقبضات دون تغيير: بعد العملية، يستمر كل مقبض في تحديد
-   * ترويسته الخاصة، لكن تلك الترويسة تصف الآن المنطقة التي كانت تنتمي سابقًا
-   * للكتلة الأخرى.
+   * تتبادل العملية بين الترويسات عناوين المناطق،
+   * سعاتها وإشغالاتها. تظل المقابض دون تغيير:
+   * بعد العملية، يستمر كل مقبض في تحديد ترويسته الخاصة، ولكن هذه الترويسة تصبح صفة للممنطقة التي كانت
+   * تنتمي سابقاً للكتلة الأخرى.
    *
-   * لا يتم نسخ أي بيانات في `dataBus`؛ بل يتم تعديل بيانات التحكم للترويستين فقط.
+   * لا يتم نسخ أي بيانات في `dataBus`؛ فقط البيانات الوصفية للترويستين
+   * يتم تعديلها.
    *
    * @param {number} source - مقبض الكتلة الأولى.
    * @param {number} target - مقبض الكتلة الثانية.
    * @returns {void}
-   * @throws {Error} إذا كانت `source` أو `target` غير صالحة أو تالفة.
+   * @throws {Error} إذا كانت المقابض غير صالحة، أو تالفة،
+   * أو كانت أي من الكتلتين معارة بواسطة withView().
    */
   swap(source, target) {
     const metaA = {};
     const metaB = {};
     this.extractMetadata(source, metaA);
     this.extractMetadata(target, metaB);
+    this.assertNotBorrowed(metaA.headerAddress);
+    this.assertNotBorrowed(metaB.headerAddress);
     this.controlAdapter.setUint32(metaA.headerAddress + ADDRESS_OFFSET, metaB.dataAddress, IS_LITTLE_ENDIAN);
     this.controlAdapter.setUint32(metaB.headerAddress + ADDRESS_OFFSET, metaA.dataAddress, IS_LITTLE_ENDIAN);
     this.controlAdapter.setUint8(metaA.headerAddress + CAPACITY_OFFSET, metaB.capacityExponent);
@@ -931,17 +997,17 @@ var Balloc = class {
     this.controlAdapter.setUint32(metaA.headerAddress + OCCUPIED_OFFSET, metaB.occupied, IS_LITTLE_ENDIAN);
     this.controlAdapter.setUint32(metaB.headerAddress + OCCUPIED_OFFSET, metaA.occupied, IS_LITTLE_ENDIAN);
   }
-  // ============= SERIALIZATION ==============
+  // ============= التسلسل (SERIALIZATION) ==============
   /**
-   * يحول محتوى والبيانات الوصفية لكتلة ذاكرة إلى تسلسل (Serializes).
+   * يسلسل محتوى والبيانات الوصفية لكتلة الذاكرة.
    *
-   * تستخرج الطريقة البيانات المشغولة من الكتلة عبر `pick()`، وتجمعها
-   * مع معلومات السعة ونوع الكلمة في غلاف بيانات (data envelope)، وتشفيرها
-   * باستخدام تنسيق CBOR.
+   * يستخرج الأسلوب البيانات المشغولة للكتلة عبر `pick()`،
+   * ويجمعها جنباً إلى جنب مع معلومات السعة ونوع الكلمة (Word type)
+   * في مظروف بيانات ويقوم بتشفرها باستخدام تنسيق CBOR.
    *
-   * @param {number} handler - مقبض الكتلة المراد تسلسلسها.
-   * @returns {Uint8Array} مخزن مؤقت يحتوي على بيانات الكتلة المسلسلة.
-   * @throws {Error} إذا كان المقبض غير صالح أو تالفًا.
+   * @param {number} handler - مقبض الكتلة المراد تسلسلها.
+   * @returns {Uint8Array} مخزن مؤقت يحتوي على البيانات المسلسلة للكتلة.
+   * @throws {Error} إذا كان المقبض غير صالح أو تالفاً.
    */
   dump(handler) {
     const meta = this.extractMetadata(handler, this.metadata);
@@ -966,14 +1032,14 @@ var Balloc = class {
   /**
    * يستعيد كتلة ذاكرة من بيانات مسلسلة.
    *
-   * يفك تشفير غلاف CBOR، ويتحقق مما إذا كان نوع الكلمة للبيانات المسلسلة
-   * متوافقًا مع مثيل المخصص الحالي، ويخصص كتلة جديدة
-   * بالسعة اللازمة لاستيعاب المحتوى. بعد ذلك، يتم استعادة البيانات الأصلية
-   * والإشغال في الكتلة الجديدة.
+   * يفك تشفر مظروف CBOR، ويتحقق مما إذا كان نوع كلمة البيانات
+   * المسلسلة متوافقاً مع مثيل المخصص الحالي ويخصص
+   * كتلة جديدة بالسعة اللازمة لاستيعاب المحتوى.
+   * بعد ذلك، يتم استعادة البيانات والإشغال الأصلي في الكتلة الجديدة.
    *
-   * @param {Uint8Array|ArrayBuffer} serialized - مخزن مؤقت يحتوي على البيانات المسلسلة.
-   * @returns {number} مقبض الكتلة المُعاد إنشاؤها حديثًا.
-   * @throws {Error} إذا كان نوع كلمة البيانات المفكوكة يختلف عن النوع المُكوّن في المخصص.
+   * @param {Uint8Array|ArrayBuffer} serialized - المخزن المؤقت الذي يحتوي على البيانات المسلسلة.
+   * @returns {number} مقبض الكتلة الجديدة المُعاد إنشاؤها.
+   * @throws {Error} إذا كان نوع كلمة البيانات المفككة يختلف عن المُكوّن في المخصص.
    */
   load(serialized) {
     if (!(serialized instanceof ArrayBuffer) && !(serialized instanceof Uint8Array)) {
@@ -1012,22 +1078,54 @@ var Balloc = class {
     this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, envelope.occupied, IS_LITTLE_ENDIAN);
     return handler;
   }
-  // ============= UTILITIES ==============
+  // ============= الأدوات المساعدة (UTILITIES) ==============
+  /**
+   * يمنع عمليات التعديل على كتلة معارة.
+   *
+   * يتحقق من علم VIEW_LOCK في الترويسة المرتبطة بالعنوان المُعطى.
+   *
+   * @param {number} headerAddress - عنوان الترويسة في controlBus.
+   * @returns {void}
+   * @throws {Error} إذا كانت الكتلة معارة بواسطة withView().
+   * @private
+   */
+  assertNotBorrowed(headerAddress) {
+    if (this.controlBus[headerAddress + FLAGS_OFFSET] & VIEW_LOCK) {
+      throw new Error("Block is borrowed");
+    }
+  }
+  /**
+   * يمنع العمليات التي تستبدل أو تعيد تعيين dataBus
+   * طالما كان هناك أي جزء معار.
+   *
+   * @returns {void}
+   * @throws {Error} إذا كانت هناك أي كتلة معارة بواسطة withView().
+   * @private
+   */
+  assertNoActiveViews() {
+    for (let i = 0; i < this.controlPointer; i += HEADER_SIZE) {
+      if (this.controlBus[i + COOKIE_OFFSET] === 0) continue;
+      if (this.controlBus[i + FLAGS_OFFSET] & VIEW_LOCK) {
+        throw new Error("Cannot remap memory while a block is borrowed");
+      }
+    }
+  }
   /**
    * [استخدام داخلي]
-   * يفك تشفير البيانات الوصفية المرتبطة بالمقبض.
+   * يفك تشفر البيانات الوصفية المرتبطة بمقبض.
    *
-   * يتم تقسيم المقبض إلى جيل وعنوان ترويسة. ثم يتم إعادة حساب الكوكي المخزن
+   * ينقسم المقبض إلى جيل وعنوان الترويسة. يتم بعد ذلك إعادة حساب ملف تعريف الارتباط (Cookie) المخزن
    * في الترويسة للتحقق من التركيبة؛ وفقط بعد هذا التحقق يتم قراءة البيانات الوصفية.
    *
-   * تتم كتابة الحقول المفكوكة إلى الكائن `out`، والذي يتم إرجاعه بواسطة الدالة
-   * نفسها. يمكن إعادة استخدام الكائن عبر الاستدعاءات لتجنب تخصيصات جديدة.
+   * تتم كتابة الحقول المفككة في الكائن `out`، والذي يتم إرجاعه
+   * بواسطة الدالة نفسها. يمكن إعادة استخدام الكائن بين الاستدعاءات لتجنب
+   * تخصيصات جديدة.
    *
    * @param {number} handler - المقبض المراد فك تشفيره والتحقق منه.
-   * @param {Metadata} out - الكائن الذي سيتلقى البيانات الوصفية المفكوكة.
+   * @param {Metadata} out - الكائن الذي سيستقبل البيانات الوصفية المفككة.
    * @returns {Metadata} نفس المرجع المُقدم في `out`.
-   * @throws {Error} إذا كان كوكي الترويسة لا يتطابق مع المقبض أو إذا كان
-   * المقبض لا يحدد ترويسة صالحة.
+   * @throws {Error} إذا لم يتطابق ملف تعريف ارتباط الترويسة مع المقبض أو
+   * إذا لم يحدد المقبض ترويسة صالحة.
    * @private
    */
   extractMetadata(handler, out) {
@@ -1045,32 +1143,35 @@ var Balloc = class {
   }
   /**
    * [استخدام داخلي]
-   * يحسب كوكي التحقق للترويسة.
+   * يحسب ملف تعريف ارتباط التحقق (Validation cookie) لترويسة.
    *
-   * يتم اشتقاق الكوكي من عنوان الترويسة والجيل ذي 11 بت عبر
-   * دالة تجزئة سريعة (fast hash). يتم اختزال النتيجة إلى 8 بت.
+   * يتم اشتقاق ملف تعريف الارتباط من عنوان الترويسة وبتات الجيل الـ 11 عبر
+   * التجزئة السريعة (Fast hash).
+   * يتم تصغير النتيجة إلى 8 بتات.
    *
-   * القيمة صفر محجوزة كمؤشر لترويسة غير صالحة؛ لذلك، عندما
-   * تنتج العملية صفرًا، تُرجع الطريقة `1`.
+   * تُحجز القيمة صفر كمؤشر لترويسة غير صالحة؛ ولهذا السبب،
+   * عندما ينتج عن الحساب صفر، يرجع الأسلوب `1`.
    *
-   * الكوكي ليس آلية تشفير. الغرض منه هو اكتشاف المقبضات غير الصالحة،
-   * القديمة، أو التالفة داخل نموذج إدارة الذاكرة للمخصص.
+   * لا يشكل ملف تعريف الارتباط آلية تشفير. الغرض منه هو
+   * اكتشاف المقابض غير الصالحة، القديمة (Stale)، أو التالفة ضمن نموذج إدارة
+   * الذاكرة الخاص بالمخصص.
    *
    * @param {number} addr - عنوان الترويسة.
-   * @param {number} gen - الجيل المرتبط بالمقبض. يتم أخذ الـ 11 بت الأقل
-   * أهمية فقط.
-   * @returns {number} كوكي بـ 8 بت في النطاق [1, 255].
+   * @param {number} gen - الجيل المرتبط بالمقبض. يتم أخذ بتات الـ 11
+   * الأقل أهمية في الاعتبار فقط.
+   * @returns {number} ملف تعريف ارتباط بـ 8 بتات في النطاق [1, 255].
    * @private
    */
   bakeCookie(addr, gen) {
     return (addr ^ gen & 2047 * 2654435761) & 255 || 1;
   }
   /**
-   * يُرجع عدد المناطق المخزنة حاليًا في قائمة إعادة التدوير.
+   * يرجع كمية المناطق المخزنة حالياً في قائمة
+   * إعادة التدوير.
    *
-   * تتوافق كل منطقة مع كتلة مُحررة لم يمكن إرجاعها مباشرة
-   * إلى قمة `dataBus` وبالتالي تظل متاحًة لإعادة الاستخدام بواسطة
-   * تخصيص مستقبل بنفس السعة.
+   * تتوافق كل منطقة مع كتلة محررة تعذر إرجاعها
+   * مباشرة إلى قمة `dataBus`، وبالتالي تظل متاحة
+   * لإعادة الاستخدام بواسطة تخصيص مستقبلي بسعة مطابقة.
    *
    * @returns {number} عدد المناطق الحرة المحتفظ بها في `recycle`.
    */
@@ -1082,10 +1183,11 @@ var Balloc = class {
     return count;
   }
   /**
-   * يُرجع إجمالي البايتات التي تنتمي إلى المناطق المخزنة حاليًا في قائمة إعادة التدوير.
+   * يرجع إجمالي البايتات التابعة للمناطق المخزنة حالياً
+   * في قائمة إعادة التدوير.
    *
-   * يتم حساب القيمة عن طريق جمع سعة كل منطقة حرة مضروبة
-   * في عدد المناطق المسجلة لتلك السعة.
+   * يتم حساب القيمة بجمع سعة كل منطقة حرة مضروبة
+   * في كمية المناطق المسجلة لتلك السعة.
    *
    * @returns {number} عدد البايتات المشغولة بواسطة المناطق القابلة لإعادة التدوير.
    */
@@ -1097,22 +1199,23 @@ var Balloc = class {
     return total;
   }
   /**
-   * يُرجع كمية البايتات المخصصة التي لا تنتمي إلى مناطق قابلة لإعادة التدوير حاليًا.
+   * يرجع كمية البايتات المخصصة التي لا تنتمي إلى المناطق
+   * القابلة لإعادة التدوير حالياً.
    *
-   * يتم الحصول على القيمة عن طريق طرح البايتات التي تنتمي إلى المناطق الحرة المحتفظ بها
-   * في `recycle` من إجمالي تقدم `dataPointer`.
+   * يتم الحصول على القيمة عن طريق طرح البايتات التابعة للمناطق الحرة المحتفظ
+   * بها في `recycle` من إجمالي تقدم `dataPointer`.
    *
-   * @returns {number} عدد البايتات المرتبطة بالمناطق غير القابلة لإعادة التدوير ضمن
-   * المساحة المستخدمة بالفعل بواسطة `dataBus`.
+   * @returns {number} عدد البايتات المرتبطة بالمناطق غير القابلة لإعادة التدوير
+   * داخل المساحة المستخدمة بالفعل بواسطة `dataBus`.
    */
   get allocatedBytes() {
     return this.dataPointer - this.recycleBytes;
   }
   /**
-   * يُرجع كمية البايتات التي لم تُستخدم بعد في قمة `dataBus`.
+   * يرجع كمية البايتات غير المستخدمة بعد في قمة `dataBus`.
    *
-   * تتوافق هذه المساحة مع المنطقة الواقعة بين `dataPointer` ونهاية
-   * السعة المحجوزة حاليًا للمخزن المؤقت.
+   * تتوافق هذه المساحة مع المنطقة بين `dataPointer` ونهاية
+   * السعة المحجوزة حالياً للمخزن المؤقت.
    *
    * @returns {number} عدد البايتات المتاحة بعد `dataPointer`.
    */
@@ -1120,15 +1223,15 @@ var Balloc = class {
     return this.size - this.dataPointer;
   }
   /**
-   * يُرجع النسبة بين الذاكرة القابلة لإعادة التدوير ومساحة الكومة المستخدمة.
+   * يرجع النسبة بين الذاكرة القابلة لإعادة التدوير ومنطقة الكومة (Heap) المستخدمة.
    *
-   * يعتبر المقياس المناطق الحرة المحتفظ بها في `recycle` بمثابة تجزئة (fragmentation)
-   * ويستخدم `dataPointer` كمقام. عندما لا يتم استخدام أي بايتات بواسطة الكومة،
-   * تكون النتيجة صفرًا.
+   * تعتبر المقياس المناطق الحرة المحتفظ بها في `recycle` بمثابة تجزئة (Fragmentation)
+   * وتستخدم `dataPointer` كمقام. عندما لا يتم استخدام أي بايت
+   * بواسطة الكومة، تكون النتيجة صفراً.
    *
-   * لا تمثل القيمة جزءًا من إجمالي سعة `dataBus` بالكامل،
-   * بل تحديدًا نسبة البايتات القابلة لإعادة التدوير ضمن المساحة التي
-   * تم اجتيازها بالفعل بواسطة المؤشر التراكمي (bump pointer).
+   * لا تمثل القيمة جزءاً من كامل سعة `dataBus`، بل
+   * تمثل تحديداً نسبة البايتات القابلة لإعادة التدوير داخل المساحة التي تم المرور
+   * عليها بالفعل بواسطة مؤشر الاندفاع (Bump pointer).
    *
    * @returns {number} نسبة التجزئة في النطاق [0, 1] في ظل ظروف
    * التشغيل العادية.

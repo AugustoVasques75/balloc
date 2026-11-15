@@ -43,6 +43,8 @@ var ADDRESS_OFFSET = 0 >>> 0;
 var OCCUPIED_OFFSET = 4 >>> 0;
 var CAPACITY_OFFSET = 8 >>> 0;
 var COOKIE_OFFSET = 9 >>> 0;
+var FLAGS_OFFSET = 10 >>> 0;
+var VIEW_LOCK = 1 >>> 0;
 var ROTATE_32BITS = 4294967296;
 var CLAMP_11BITS = 2047 >>> 0;
 var isTypedArray = (val) => ArrayBuffer.isView(val) && !(val instanceof DataView);
@@ -52,17 +54,18 @@ var Balloc = class {
    *
    * 该分配器维护两个独立的缓冲区：
    * - `dataBus`：存储已分配块的数据；
-   * - `controlBus`：存储标头及其他控制元数据。
+   * - `controlBus`：存储标头和其他控制元数据。
    *
-   * 每个块都有一个固定大小的标头（`HEADER_SIZE`），并由一个 43 位逻辑句柄
-   * 在外部进行标识，该句柄由 11 位的代和 32 位的标头地址组成。
+   * 每个块都有一个固定大小的标头（`HEADER_SIZE`），并在外部通过一个 43 位逻辑句柄标识，
+   * 该句柄由一个 11 位的代数及其 32 位标头地址组成。
    *
-   * 每个块的容量会按元素向上取整到下一个二的幂，同时遵循配置的桶宽度。
+   * 每个块的容量会按元素数量向上取整到下一个 2 的幂次，
+   * 同时遵循配置的桶的宽度。
    *
    * @param {number} [size=65535] - `dataBus` 的初始容量（以字节为单位）。
    * 必须是范围在 [2, 0x80000000] 内的安全整数。
-   * @param {BucketType} [bucketSize="32u"] - 桶类型和大小标识符
-   * （例如：'32u' 表示 Uint32，'64f' 表示 Float64，'8i' 表示 Int8）。
+   * @param {BucketType} [bucketSize="32u"] - 桶类型和大小的标识符
+   * （例如：Uint32 为 '32u'，Float64 为 '64f'，Int8 为 '8i'）。
    * @param {number} [metadataSize=1024] - `controlBus` 的初始容量（以字节为单位）。
    * 必须是范围在 [HEADER_SIZE, 0x80000000] 内的安全整数。
    *
@@ -109,22 +112,22 @@ var Balloc = class {
   /**
    * 分配一个新的内存块。
    *
-   * 请求的容量会被转换为能够容纳 `size` 个元素的最小二的幂。
-   * 该块优先从具有相应容量的可回收区域列表中获取；如果不存在兼容的区域，
-   * 则在 `dataBus` 的顶部保留该块。
+   * 请求的容量会被转换为能够容纳 `size` 个元素的最小 2 的幂次。
+   * 优先从具有相应容量的可回收区域列表中获取该块；若不存在兼容的区域，则在 `dataBus` 的顶部预留该块。
    *
-   * 接下来，从控制空间获取一个标头。先前释放的标头可以通过内部回收栈进行重用；
-   * 否则，会在必要时扩展 `controlBus`。
+   * 随后，从控制空间中获取一个标头。先前释放的标头可以通过内部回收栈进行复用；
+   * 否则，必要时会扩展 `controlBus`。
    *
-   * 标头会接收地址、容量、初始占用数（零）以及验证 Cookie。
-   * 返回的值对分配代数和标头地址进行编码：
+   * 标头会接收地址、容量、初始占用数（零）以及一个验证 cookie。
+   * 返回的值编码了分配代数与标头地址：
    *
-   *     [11 位代数][32 位标头地址]
+   *     [11位代数][32位标头地址]
    *
-   * @param {number} [size=16] - 块必须容纳的最小元素数量。
+   * @param {number} [size=16] - 块必须能够容纳的最少元素数。
    * 必须是范围在 [2, 0x80000000] 内的安全整数。
    * @returns {number} 标识已分配块的句柄。
    * @throws {RangeError} 如果 `size` 超出允许范围。
+   * @throws {Error} 如果在某个块通过 withView() 被借用的同时需要扩展 `dataBus`。
    */
   alloc(size = 16) {
     if (!Number.isSafeInteger(size) || size < 2 || size > 2147483648) throw new RangeError(`Parameter size must be in range [2, 0x80000000] but size is ${size}`);
@@ -150,28 +153,30 @@ var Balloc = class {
     this.controlAdapter.setUint32(headerAddress + OCCUPIED_OFFSET, 0, IS_LITTLE_ENDIAN);
     this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, capacity);
     this.controlAdapter.setUint8(headerAddress + COOKIE_OFFSET, this.bakeCookie(headerAddress, ++this.generation));
+    this.controlBus[headerAddress + FLAGS_OFFSET] = 0;
     return (this.generation & CLAMP_11BITS) * ROTATE_32BITS + headerAddress;
   }
   /**
-   * 将块的容量扩展到下一个二的幂。
+   * 将块的容量扩展到下一个 2 的幂次。
    *
-   * 当块位于 `dataBus` 的当前顶部时，扩展以就地（in-place）方式发生：
+   * 当块位于 `dataBus` 的当前顶部时，会进行原地（in-place）扩展：
    * 仅更新其容量和 `dataPointer`。
    *
-   * 如果块之后存在其他区域，则从可回收空间中获取或在 `dataBus` 顶部
-   * 分配一个容量加倍的新区域。随后，当前占用的元素将被复制到新区域中，
-   * 并且先前的区域被归还给回收列表。
+   * 如果块之后存在其他区域，则会从可回收空间中获取或在 `dataBus` 顶部
+   * 分配一个容量加倍的新区域。随后，当前已占用的元素会被复制到新区域中，
+   * 并且旧区域会被交还给回收列表。
    *
-   * 句柄保持有效，因为它的标头得到了保留，并且仅更新了其中记录的地址和容量。
+   * 句柄保持有效，因为它的标头得到了保留，仅更新了其中记录的地址和容量。
    *
    * @param {number} handler - 要扩展的块的句柄。
    * @returns {void}
-   * @throws {Error} 如果句柄无效或已损坏。
-   * @throws {AggregateError} 如果容量已达到其支持的最大限制。
+   * @throws {Error} 如果句柄无效、已损坏，或者块正通过 withView() 被借用。
+   * 如果扩展需要重新映射 dataBus 且有其他块被借用，也会抛出此错误。
+   * @throws {AggregateError} 如果容量已达到支持的最大限制。
    */
   realloc(handler) {
     const generation = handler / ROTATE_32BITS & CLAMP_11BITS;
-    let headerAddress = handler >>> 0;
+    const headerAddress = handler >>> 0;
     const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
     const occupied = this.controlAdapter.getUint32(headerAddress + OCCUPIED_OFFSET, IS_LITTLE_ENDIAN);
     const capacity = this.controlAdapter.getUint8(headerAddress + CAPACITY_OFFSET);
@@ -179,47 +184,49 @@ var Balloc = class {
     if (cookie !== this.bakeCookie(headerAddress, generation)) {
       throw new Error("Invalid or corrupted handle");
     }
+    this.assertNotBorrowed(headerAddress);
     if (capacity >= 31) throw new AggregateError([new Error("Can\xB4t reallocate handler."), new RangeError("Capacity has reached its limit.")], "Internal Error.");
     const newCapacity = capacity + 1;
     const newBlockSize = (1 << newCapacity >>> 0) * this.wordSize;
     const oldBlockSize = (1 << capacity >>> 0) * this.wordSize;
     if (dataAddress + oldBlockSize === this.dataPointer) {
       while (dataAddress + newBlockSize > this.size) this.grow();
-      this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, newCapacity, IS_LITTLE_ENDIAN);
+      this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, newCapacity);
       this.dataPointer = dataAddress + newBlockSize;
       return;
     }
-    this.recyclePush(oldBlockSize, dataAddress);
     let newAddress = this.recyclePop(newBlockSize);
     if (newAddress === UNKNOWN) {
       while (this.dataPointer + newBlockSize > this.size) this.grow();
       newAddress = this.dataPointer;
       this.dataPointer += newBlockSize;
     }
-    this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, newCapacity);
     this.dataBus.copyWithin(newAddress, dataAddress, dataAddress + occupied * this.wordSize);
     this.controlAdapter.setUint32(headerAddress + ADDRESS_OFFSET, newAddress, IS_LITTLE_ENDIAN);
+    this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, newCapacity);
+    this.recyclePush(oldBlockSize, dataAddress);
   }
   /**
-   * 释放内存块。
-   *
-   * 通过将块的 Cookie 清零来使其标头失效，并记录其地址以便后续重用。
-   * 数据区域也会被归还给回收系统，但块精确处于 `dataBus` 顶部的情况除外；
-   * 在这种情况下，只需回退 `dataPointer` 即可消除该区域，而无需在回收列表中创建条目。
-   *
-   * @param {number} handler - 要释放的块的句柄。
-   * @returns {void}
-   * @throws {Error} 如果句柄无效或已损坏。
-   */
+  * 释放内存块。
+  *
+  * 通过将块标头的 cookie 清零使其失效，并记录其地址以便后续复用。
+  * 数据区域也会被交还给回收系统，除非该块刚好位于 `dataBus` 的顶部；
+  * 在这种情况下，`dataPointer` 会直接回滚，从而消除该区域而无需在回收列表中创建条目。
+  *
+  * @param {number} handler - 要释放的块的句柄。
+  * @returns {void}
+  * @throws {Error} 如果句柄无效、已损坏，或者块正通过 withView() 被借用。
+  */
   free(handler) {
     const generation = handler / ROTATE_32BITS & CLAMP_11BITS;
-    let headerAddress = handler >>> 0;
+    const headerAddress = handler >>> 0;
     const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
     const capacity = this.controlAdapter.getUint8(headerAddress + CAPACITY_OFFSET);
     const cookie = this.controlAdapter.getUint8(headerAddress + COOKIE_OFFSET);
     if (cookie !== this.bakeCookie(headerAddress, generation)) {
       throw new Error("Invalid or corrupted handle");
     }
+    this.assertNotBorrowed(headerAddress);
     const blockSize = (1 << capacity >>> 0) * this.wordSize;
     this.controlAdapter.setUint8(headerAddress + COOKIE_OFFSET, 0);
     if (this.echoPointer + 4 <= this.controlBus.byteLength) {
@@ -238,7 +245,7 @@ var Balloc = class {
    * 将空闲区域插入回收列表。
    *
    * 该列表按字节容量进行组织。对于每个容量，存储的值是一个 `Uint32Array`，
-   * 其零位置包含已注册地址的数量，后续位置包含空闲区域的地址：
+   * 其第 0 个位置包含已注册地址的数量，随后的位置包含空闲区域的地址：
    *
    *     [count, address1, address2, ...]
    *
@@ -268,11 +275,11 @@ var Balloc = class {
    * [内部使用]
    * 从回收列表中移除空闲区域。
    *
-   * 通过请求的确切容量进行搜索。当存在对应的页面时，
-   * 从页面中移除最后一个注册的地址并将其返回，从而将回收实现为 LIFO 栈。
+   * 按请求的确切容量进行查找。当存在对应的页面时，从该页面中移除并返回最后注册的地址，
+   * 从而将回收实现为 LIFO（后进先出）栈。
    *
-   * @param {number} capacity - 所需的容量（以字节为单位）。
-   * @returns {number} 可回收区域的起始地址，如果不存在具有请求容量的区域则返回 `UNKNOWN`。
+   * @param {number} capacity - 期望的容量（以字节为单位）。
+   * @returns {number} 可回收区域的起始地址，若不存在具有请求容量的区域则返回 `UNKNOWN`。
    * @private
    */
   recyclePop(capacity) {
@@ -286,25 +293,27 @@ var Balloc = class {
   }
   // ========== 垃圾回收 (GARBAGE COLLECTION) ==========
   /**
-   * 使用 ReBump 算法对 `dataBus` 进行压缩。
+   * 使用 ReBump 算法对 `dataBus` 进行碎片整理（压缩）。
    *
    * 顺序遍历 `controlBus` 中注册的标头，并将仍然有效的区域复制到新的 `dataBus` 中，
-   * 从而消除它们之间存在的空闲空间。每个存活块的地址在其各自的标头中得到更新。
+   * 从而消除它们之间存在的空闲空间。每个存活块的地址都会在其各自的标头中进行更新。
    *
    * `controlBus` 中块的顺序得以保留。每个块的内部数据也完全得以保留，
-   * 包括其预留的容量和当前的占用数。
+   * 包括其预留容量和当前占用数。
    *
-   * 压缩结束时：
+   * 压缩完成后：
    * - 所有可回收区域均被消除；
    * - `dataPointer` 指向最后一个存活块之后的第一个字节；
-   * - `dataBus` 表现为活动块的连续堆（heap）。
+   * - `dataBus` 为活动块呈现出一个连续的堆。
    *
    * 控制复杂度为 O(n)，其中 `n` 是遍历的标头数量。
-   * 内存移动的有效成本还取决于属于存活块的字节量。
+   * 实际的内存移动成本还取决于属于存活块的字节量。
    *
    * @returns {void}
+   * @throws {Error} 如果有任何块通过 withView() 被借用。
    */
   gc() {
+    this.assertNoActiveViews();
     const newDataBus = new Uint8Array(this.dataBus.buffer.byteLength);
     this.recycle.clear();
     this.dataPointer = 0 >>> 0;
@@ -326,16 +335,18 @@ var Balloc = class {
   // ========== 扩容 (SCALING) ==========
   /**
    * [!!! 内部使用，请勿在您的代码中使用 !!!]
-   * 将 `dataBus` 的容量扩展为其当前容量的两倍。
+   * 将 `dataBus` 的容量扩展为当前的两倍。
    *
-   * 底层缓冲区被传输到更大的 `ArrayBuffer` 中，同时保留现有数据。
-   * 与该缓冲区关联的所有视图都会被重新创建以引用新的存储空间。
+   * 底层缓冲区被转移到一个更大的 `ArrayBuffer` 中，同时保留现有数据。
+   * 与该缓冲区关联的所有视图都会被重新创建，以引用新的存储空间。
    *
    * @returns {void}
-   * @throws {RangeError} 如果 `dataBus` 容量超出支持的最大限制。
+   * @throws {Error} 如果有任何块通过 withView() 被借用。
+   * @throws {RangeError} 如果 `dataBus` 的容量已超过支持的最大限制。
    * @private
    */
   grow() {
+    this.assertNoActiveViews();
     if (this.size > 2147483648) throw new RangeError("Data bus capacity exceeded");
     const newSize = this.size * 2 >>> 0;
     const newBuffer = this.dataBus.buffer.transfer(newSize);
@@ -348,13 +359,13 @@ var Balloc = class {
   }
   /**
    * [!!! 内部使用，请勿在您的代码中使用 !!!]
-   * 将 `controlBus` 的容量扩展为其当前容量的两倍。
+   * 将 `controlBus` 的容量扩展为当前的两倍。
    *
-   * 底层缓冲区被传输到更大的 `ArrayBuffer` 中，同时保留现有标头。
-   * 重新创建 `controlAdapter` 以引用新的存储空间。
+   * 底层缓冲区被转移到一个更大的 `ArrayBuffer` 中，同时保留现有标头。
+   * `controlAdapter` 被重新创建以引用新的存储空间。
    *
    * @returns {void}
-   * @throws {RangeError} 如果当前 `controlBus` 容量超出支持的最大限制。
+   * @throws {RangeError} 如果当前的 `controlBus` 容量已超过支持的最大限制。
    * @private
    */
   headerGrow() {
@@ -366,44 +377,47 @@ var Balloc = class {
   }
   // ========== 栈操作 (STACK OPERATIONS) ==========
   /**
-   * 将元素追加到块所占用序列的末尾。
+   * 在块所占用的序列末尾追加一个元素。
    *
-   * 该元素写入最后一个已占用元素之后的第一个空闲位置。
-   * 只有在其容量中有可用空间时，才会增加块的占用数。
+   * 该元素被写入最后一个占用元素之后的第一个空闲位置。
+   * 只有在容量范围内有可用空间时，块的占用数才会递增。
    *
    * @param {number} handler - 块句柄。
    * @param {number} value - 要插入的值。
-   * @returns {boolean} 如果成功插入值则为 `true`；如果块没有可用空间则为 `false`。
-   * @throws {Error} 如果句柄无效或已损坏。
+   * @returns {boolean} 如果值已成功插入则为 `true`；如果块已无可用空间则为 `false`。
+   * @throws {Error} 如果句柄无效、已损坏，或者块正通过 withView() 被借用。
+   * 
    */
   push(handler, value) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     if ((meta.occupied + 1) * this.wordSize > meta.byteCapacity) return false;
     this.writer(meta.dataAddress + meta.occupied * this.wordSize, value, IS_LITTLE_ENDIAN);
     this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied + 1, IS_LITTLE_ENDIAN);
     return true;
   }
   /**
-   * 移除并返回块中最后占用的元素。
+   * 移除块中最后一个占用的元素并将其返回。
    *
-   * 在读取被移除的元素之前，占用数会递减。对应的字节不会被清空，
-   * 仍留在分配的区域中，但不再属于占用的序列。
+   * 在读取被移除的元素之前，占用数会先递减。对应的字节不会被清空，
+   * 并且仍保留在分配的区域中，但不再属于已占用的序列。
    *
    * @param {number} handler - 块句柄。
-   * @returns {number|undefined} 被移除的值，如果块为空则返回 `undefined`。
-   * @throws {Error} 如果句柄无效或已损坏。
+   * @returns {number|undefined} 被移除的值，若块为空则返回 `undefined`。
+   * @throws {Error} 如果句柄无效、已损坏，或者块正通过 withView() 被借用。
    */
   pop(handler) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     if (meta.occupied === 0) return void 0;
     this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied - 1, IS_LITTLE_ENDIAN);
     return this.reader(meta.dataAddress + (meta.occupied - 1) * this.wordSize, IS_LITTLE_ENDIAN);
   }
   /**
-   * 返回最后占用的元素而不将其移除。
+   * 返回最后一个占用的元素，但不将其移除。
    *
    * @param {number} handler - 块句柄。
-   * @returns {number|undefined} 最后占用的值，如果块为空则返回 `undefined`。
+   * @returns {number|undefined} 最后一个占用的值，若块为空则返回 `undefined`。
    * @throws {Error} 如果句柄无效或已损坏。
    */
   peek(handler) {
@@ -415,18 +429,19 @@ var Balloc = class {
   /**
    * 在占用序列的开头插入一个元素。
    *
-   * 当前占用的元素向前移动一个位置，并将 `value` 写入第一个位置。
-   * 该操作要求块的容量中有空闲位置。
+   * 当前已占用的元素向前移动一个位置，并将 `value` 写入第一个位置。
+   * 该操作要求块的容量中存在空闲位置。
    *
-   * 该操作的成本与占用元素的数量成正比，因为需要移动数据。
+   * 由于需要移动数据，该操作的成本与占用元素的数量成正比。
    *
    * @param {number} handler - 块句柄。
    * @param {number} value - 要插入的值。
-   * @returns {boolean} 如果成功插入值则为 `true`；如果块已满则为 `false`。
-   * @throws {Error} 如果句柄无效或已损坏。
+   * @returns {boolean} 如果值已成功插入则为 `true`；如果块已满则为 `false`。
+   * @throws {Error} 如果句柄无效、已损坏，或者块正通过 withView() 被借用。
    */
   nudge(handler, value) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     if ((meta.occupied + 1) * this.wordSize > meta.byteCapacity) return false;
     this.dataBus.copyWithin(meta.dataAddress + this.wordSize, meta.dataAddress, meta.dataAddress + meta.occupied * this.wordSize);
     this.writer(meta.dataAddress, value, IS_LITTLE_ENDIAN);
@@ -434,18 +449,19 @@ var Balloc = class {
     return true;
   }
   /**
-   * 移除并返回块中第一个占用的元素。
+   * 移除块中第一个占用的元素并将其返回。
    *
-   * 剩余元素向占用区域的开头方向移动一个位置。块的物理容量保持不变。
+   * 其余元素向占用区域的开头方向移动一个位置。块的物理容量保持不变。
    *
    * 该操作的成本与移动的元素数量成正比。
    *
    * @param {number} handler - 块句柄。
-   * @returns {number|undefined} 第一个被移除的值，如果块为空则返回 `undefined`。
-   * @throws {Error} 如果句柄无效或已损坏。
+   * @returns {number|undefined} 第一个被移除的值，若块为空则返回 `undefined`。
+   * @throws {Error} 如果句柄无效、已损坏，或者块正通过 withView() 被借用。
    */
   pull(handler) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     if (meta.occupied === 0) return void 0;
     const result = this.reader(meta.dataAddress, IS_LITTLE_ENDIAN);
     this.dataBus.copyWithin(meta.dataAddress, meta.dataAddress + this.wordSize, meta.dataAddress + meta.occupied * this.wordSize);
@@ -453,10 +469,10 @@ var Balloc = class {
     return result;
   }
   /**
-   * 返回第一个占用的元素而不将其移除。
+   * 返回第一个占用的元素，但不将其移除。
    *
    * @param {number} handler - 块句柄。
-   * @returns {number|undefined} 第一个占用的值，如果块为空则返回 `undefined`。
+   * @returns {number|undefined} 第一个占用的值，若块为空则返回 `undefined`。
    * @throws {Error} 如果句柄无效或已损坏。
    */
   head(handler) {
@@ -468,12 +484,12 @@ var Balloc = class {
   /**
    * 检查某个值是否存在于块的占用元素中。
    *
-   * 该搜索直接在辅助 `TypedArray` 上执行，并且仅考虑当前占用的范围，
+   * 该查找直接在辅助 `TypedArray` 上执行，并且仅考虑当前占用的范围，
    * 而不是整个预留的物理容量。
    *
    * @param {number} handler - 块句柄。
-   * .@param {number} value - 要寻找的值。
-   * @returns {boolean} 如果 `value` 存在于占用元素中则为 `true`；否则为 `false`。
+   * @param {number} value - 要查找的值。
+   * @returns {boolean} 如果 `value` 存在于占用元素中则为 `true`，否则为 `false`。
    * @throws {Error} 如果句柄无效或已损坏。
    */
   has(handler, value) {
@@ -483,20 +499,17 @@ var Balloc = class {
     return this.auxiliary.subarray(rawAddres, rawAddres + meta.occupied).includes(value);
   }
   /**
-   * 在块的已占用序列中查找元素第一次出现的位置。
+   * 定位元素在块的占用序列中首次出现的位置。
    *
-   * 搜索按照索引升序进行，使用底层 TypedArray 的
-   * `indexOf` 操作。搜索范围仅限于已占用的元素，
-   * 不包括块中尚未使用的容量。
+   * 查找按索引升序执行，使用底层 TypedArray 的 `indexOf` 操作。
+   * 搜索仅考虑占用的元素，忽略块中未使用的容量。
    *
-   * 可以通过 `fromIndex` 指定搜索的起始位置，
-   * 并遵循 TypedArray 的索引规则。
+   * 可以通过 `fromIndex` 指定搜索的起始位置，该参数遵循 TypedArray 的索引规则。
    *
-   * @param {number} handler - 块的句柄。
-   * @param {number|bigint} searchElement - 要查找的元素。
+   * @param {number} handler - 块句柄。
+   * @param {number|bigint} searchElement - 要定位的元素。
    * @param {number} [fromIndex=0] - 开始搜索的索引。
-   * @returns {number} 第一次出现的位置索引；如果未找到该元素
-   * 或块为空，则返回 `-1`。
+   * @returns {number} 首次出现的索引；若未找到该元素或块为空，则返回 `-1`。
    * @throws {Error} 如果句柄无效或已损坏。
    */
   indexOf(handler, searchElement, fromIndex = 0) {
@@ -506,21 +519,18 @@ var Balloc = class {
     return this.auxiliary.subarray(rawAddres, rawAddres + meta.occupied).indexOf(searchElement, fromIndex);
   }
   /**
-   * 在块的已占用序列中查找元素最后一次出现的位置。
+   * 定位元素在块的占用序列中最后一次出现的位置。
    *
-   * 搜索按照索引降序进行，使用底层 TypedArray 的
-   * `lastIndexOf` 操作。搜索范围仅限于已占用的元素，
-   * 不包括块中尚未使用的容量。
+   * 查找按索引降序执行，使用底层 TypedArray 的 `lastIndexOf` 操作。
+   * 搜索仅考虑占用的元素，忽略块中未使用的容量。
    *
-   * 可以通过 `fromIndex` 指定搜索的起始位置，
-   * 并遵循 TypedArray 的索引规则。默认情况下，
-   * 搜索从最后一个已占用元素开始。
+   * 可以通过 `fromIndex` 指定搜索的起始位置，该参数遵循 TypedArray 的索引规则。
+   * 默认情况下，搜索从最后一个占用元素开始。
    *
-   * @param {number} handler - 块的句柄。
-   * @param {number|bigint} searchElement - 要查找的元素。
+   * @param {number} handler - 块句柄。
+   * @param {number|bigint} searchElement - 要定位的元素。
    * @param {number} [fromIndex=-1] - 开始搜索的索引。
-   * @returns {number} 最后一次出现的位置索引；如果未找到该元素
-   * 或块为空，则返回 `-1`。
+   * @returns {number} 最后一次出现的索引；若未找到该元素或块为空，则返回 `-1`。
    * @throws {Error} 如果句柄无效或已损坏。
    */
   lastIndexOf(handler, searchElement, fromIndex = -1) {
@@ -530,13 +540,13 @@ var Balloc = class {
     return this.auxiliary.subarray(rawAddres, rawAddres + meta.occupied).lastIndexOf(searchElement, fromIndex);
   }
   /**
-  * 返回基于零的索引处的占用元素。
+  * 返回基于零的索引处所占用的元素。
   *
-  * 超出范围 `[0, occupied)` 的索引不被视为错误，会返回 `undefined`。
+  * 超出 `[0, occupied)` 范围的索引不被视为错误，会返回 `undefined`。
   *
   * @param {number} handler - 块句柄。
   * @param {number} index - 元素的基于零的索引。
-  * @returns {number|undefined} 存储在索引处的值，如果索引超出占用区域则返回 `undefined`。
+  * @returns {number|undefined} 存储在索引处的值；若索引超出占用区域，则返回 `undefined`。
   * @throws {Error} 如果句柄无效或已损坏。
   */
   get(handler, index) {
@@ -547,34 +557,36 @@ var Balloc = class {
   /**
    * 替换存储在已占用索引处的值。
    *
-   * 该操作不会改变块的占用数。超出范围 `[0, occupied)` 的索引会被忽略并返回 `false`。
+   * 该操作不会改变块的占用数。超出 `[0, occupied)` 范围的索引将被忽略并返回 `false`。
    *
    * @param {number} handler - 块句柄。
    * @param {number} index - 元素的基于零的索引。
    * @param {number} value - 新值。
-   * @returns {boolean} 如果成功写入值则为 `true`；如果索引超出占用区域则为 `false`。
-   * @throws {Error} 如果句柄无效或已损坏。
+   * @returns {boolean} 如果值已成功写入则为 `true`；如果索引超出占用区域则为 `false`。
+   * @throws {Error} 如果句柄无效、已损坏，或者块正通过 withView() 被借用。
    */
   set(handler, index, value) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     if (index < 0 || index >= meta.occupied) return false;
     this.writer(meta.dataAddress + index * this.wordSize, value, IS_LITTLE_ENDIAN);
     return true;
   }
-  // ============= 杂项 (MISCELLANEOUS) ===============
+  // ============= 杂项 (MISCELLANEOUS) ==============
   /**
-   * 清零块的占用数，并用相同的值填充其整个物理容量。
+   * 将块的占用数清零，并用相同的值填满其整个物理容量。
    *
-   * 填充涵盖所有可用的槽位（slots），而不仅仅是当前占用的元素。
-   * 操作完成后，无论填充时使用什么值，该块都被视为是空的。
+   * 填充范围涵盖所有可用的槽位（slots），而不仅仅是当前占用的元素。
+   * 操作完成后，无论填充使用的是什么值，该块都会被视为是空的。
    *
    * @param {number} handler - 块句柄。
    * @param {number} [value=0] - 用于填充所有槽位的值。
    * @returns {void}
-   * @throws {Error} 如果句柄无效或已损坏。
+   * @throws {Error} 如果句柄无效、已损坏，或者块正通过 withView() 被借用。
    */
   clear(handler, value = 0) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     const slots = meta.byteCapacity / this.wordSize;
     const rawAddress = meta.dataAddress >>> this.wordShift;
     this.auxiliary.fill(value, rawAddress, rawAddress + slots);
@@ -583,23 +595,22 @@ var Balloc = class {
   /**
    * 用某个值填充块的一段槽位范围。
    *
-   * 该范围使用基于零的索引，并遵循 `[start, end)` 惯例，
-   * 因此 `start` 是包含的（inclusive），而 `end` 是排他的（exclusive）。
-   * 当未指定 `end` 时，填充会延伸到块物理容量的末尾。
+   * 该范围使用基于零的索引，并遵循 `[start, end)` 惯例，因此 `start` 是包含的（inclusive），
+   * 而 `end` 是排除的（exclusive）。当未提供 `end` 时，填充将一直延伸到块物理容量的末尾。
    *
-   * 块的占用数变为 `end`，即使填充的范围超出了先前的占用数也是如此。
+   * 块的占用数将变为 `end`，即使填充的范围超出了先前的占用数也是如此。
    *
    * @param {number} handler - 块句柄。
    * @param {number} value - 用于填充的值。
-   * @param {number} [start=0] - 起始索引，包含。
-   * @param {number|null} [end=null] - 结束索引，排他。当省略或为 `null` 时，
-   * 使用块的总容量。
+   * @param {number} [start=0] - 起始索引（包含）。
+   * @param {number|null} [end=null] - 结束索引（排除）。省略或为 `null` 时，使用块的总容量。
    * @returns {void}
-   * @throws {Error} 如果句柄无效或已损坏。
+   * @throws {Error} 如果句柄无效、已损坏，或者块正通过 withView() 被借用。
    * @throws {RangeError} 如果 `start` 或 `end` 超出容量边界，或者 `start > end`。
    */
   fill(handler, value, start = 0, end = null) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     const slots = meta.byteCapacity / this.wordSize;
     const lastIndex = end ?? slots;
     if (start > lastIndex) {
@@ -616,42 +627,43 @@ var Balloc = class {
     this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, lastIndex, IS_LITTLE_ENDIAN);
   }
   /**
-   * 用一个值填充块的所有物理槽位，并将整个容量标记为已占用。
+   * 用某个值填满块的所有物理槽位，并将整个容量标记为已占用。
    *
-   * 与 `clear()` 不同，该操作会产生一个完全被占用的块。
+   * 与 `clear()` 不同，该操作产生的是一个完全占用的块。
    *
    * @param {number} handler - 块句柄。
    * @param {number} value - 用于填充的值。
    * @returns {void}
-   * @throws {Error} 如果句柄无效或已损坏。
+   * @throws {Error} 如果句柄无效、已损坏，或者块正通过 withView() 被借用。
    */
   fillAll(handler, value) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     const rawAddress = meta.dataAddress >>> this.wordShift;
     const capacityElements = meta.byteCapacity / this.wordSize;
     this.auxiliary.fill(value, rawAddress, rawAddress + capacityElements);
     this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, capacityElements, IS_LITTLE_ENDIAN);
   }
   /**
-   * 将 `Array` 或 `TypedArray` 的元素复制到块的开头。
+   * 将 `Array` 或 `TypedArray` 中的元素复制到块的开头。
    *
-   * 复制的数量受块容量的限制。占用数更新为先前占用数与实际复制数量中的较大值；
-   * 因此，当接收到较小的序列时，调用 `put()` 不会减少现有的占用数。
+   * 复制的数量受块容量的限制。占用数会被更新为先前占用数与实际复制数量中的较大者；
+   * 因此，当接收到较短的序列时，调用 `put()` 不会减少现有的占用数。
    *
    * 对于 `Array`，仅复制能装下的前几个元素。
-   * 对于 `TypedArray`，使用源的子数组（subarray），无需中间复制。
+   * 对于 `TypedArray`，会直接使用源的子数组（subarray），无需进行中间复制。
    *
    * @param {number} handler - 块句柄。
    * @param {Array|TypedArray} data - 要复制的值序列。
    * @returns {void}
-   * @throws {Error} 如果句柄无效或已损坏。
+   * @throws {Error} 如果句柄无效、已损坏，或者块正通过 withView() 被借用。
    * @throws {TypeError} 如果 `data` 既不是 `Array` 也不是 `TypedArray`。
    */
   put(handler, data) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     const rawAddress = meta.dataAddress >>> this.wordShift;
     const length = Math.min(1 << meta.capacityExponent >>> 0, data.length);
-    meta.occupied = Math.max(length, meta.occupied);
     if (Array.isArray(data)) {
       this.auxiliary.set(data.slice(0, length), rawAddress);
     } else if (isTypedArray(data)) {
@@ -660,18 +672,18 @@ var Balloc = class {
       const actual = data?.constructor?.name ?? (data === null ? "null" : typeof data);
       throw new TypeError(`data must be Array or TypedArray, but ${actual} was given.`);
     }
-    this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied, IS_LITTLE_ENDIAN);
+    this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, Math.max(length, meta.occupied), IS_LITTLE_ENDIAN);
   }
   /**
   * 返回块当前占用元素的副本。
   *
-  * 结果是由 `bucketSize` 配置的同类型 `TypedArray`。未占用的物理容量不包含在结果中。
+  * 结果是一个由 `bucketSize` 配置的同类型 `TypedArray`。未占用的物理容量不包含在结果中。
   *
   * 该操作不直接暴露内部存储：该方法使用 `TypedArray.prototype.slice()`，
-  * 产生一个具有独立存储的新视图。
+  * 生成一个具有独立存储空间的新视图。
   *
   * @param {number} handler - 块句柄。
-  * @returns {TypedArray} 块占用的元素副本。当块为空时，返回配置类型的空 `TypedArray`。
+  * @returns {TypedArray} 块占用元素的副本。当块为空时，返回配置类型的空 `TypedArray`。
   * @throws {Error} 如果句柄无效或已损坏。
   */
   pick(handler) {
@@ -682,14 +694,43 @@ var Balloc = class {
     }
     return this.auxiliary.slice(rawAddress, rawAddress + meta.occupied);
   }
-  // ======== 按槽位计算的容量 (CAPACITY IN SLOTS) ==========
   /**
-   * 返回块以字节为单位的物理容量。
+   * 在块占用区域的直接视图上执行回调函数。
    *
-   * 容量对应于为块中所有槽位预留的空间，无论当前占用了多少元素。
+   * 该视图共享 Balloc 的内部存储且不进行复制。
+   * 在回调执行期间，该块受到保护，免受不兼容操作的影响。
+   *
+   * 回调必须是同步的。接收到的视图不得在回调结束后被存储、返回或使用。
+   * 此限制同样适用于从原始视图派生的子视图（subviews）。
    *
    * @param {number} handler - 块句柄。
-   * @returns {number} 块的物理容量（以字节为单位）。
+   * @param {Function} callback - 接收共享 TypedArray 的函数。
+   * @returns {*} 回调函数产生 返回值。
+   * @throws {TypeError} 如果回调不是函数。
+   * @throws {Error} 如果句柄无效或已被借用。
+   */
+  withView(handler, callback) {
+    if (typeof callback !== "function") throw new TypeError("callback must be a function");
+    const meta = this.extractMetadata(handler, this.metadata);
+    const flagsAddress = meta.headerAddress + FLAGS_OFFSET;
+    const flags = this.controlBus[flagsAddress];
+    if (flags & VIEW_LOCK) throw new Error("Block is already borrowed");
+    this.controlBus[flagsAddress] = flags | VIEW_LOCK;
+    try {
+      const rawAddress = meta.dataAddress >>> this.wordShift;
+      return callback(this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied));
+    } finally {
+      this.controlBus[flagsAddress] &= ~VIEW_LOCK;
+    }
+  }
+  // ======== 槽位容量 (CAPACITY IN SLOTS) ==========
+  /**
+   * 返回块的物理容量（以字节为单位）。
+   *
+   * 容量对应于为块中所有槽位预留的空间，无论当前占用了多少个元素。
+   *
+   * @param {number} handler - 块句柄。
+   * @returns {number} 块的物理容量，以字节为单位。
    * @throws {Error} 如果句柄无效或已损坏。
    */
   byteSize(handler) {
@@ -700,7 +741,7 @@ var Balloc = class {
    * 返回块中当前占用的元素数量。
    *
    * @param {number} handler - 块句柄。
-   * @returns {number} 已占用元素的数量。
+   * @returns {number} 已占用元素数量。
    * @throws {Error} 如果句柄无效或已损坏。
    */
   occupied(handler) {
@@ -708,9 +749,9 @@ var Balloc = class {
     return meta.occupied;
   }
   /**
-   * 返回以元素数量计算的块容量。
+   * 返回以元素数量表示的块容量。
    *
-   * 该值对应物理预留槽位的总数，而不是当前占用的数量。
+   * 该值对应于物理预留的总槽位数，而不是当前占用的数量。
    *
    * @param {number} handler - 块句柄。
    * @returns {number} 块中可用的槽位总数。
@@ -723,42 +764,41 @@ var Balloc = class {
   /**
    * 检查内存块是否已达到其分配容量。
    *
-   * 当已占用元素的数量等于其分配的总容量时，
-   * 该内存块被视为已满，此时没有剩余空间
-   * 可以存储其他元素。
+   * 当占用元素数量等于其分配的总容量、且没有剩余位置可存储新元素时，块被视为已满。
    *
-   * @param {number} handler - 块的句柄。
-   * @returns {boolean} 如果块已满则返回 `true`，否则返回 `false`。
+   * @param {number} handler - 块句柄。
+   * @returns {boolean} 如果块已满则为 `true`，否则为 `false`。
    * @throws {Error} 如果句柄无效或已损坏。
    */
   isFull(handler) {
     const meta = this.extractMetadata(handler, this.metadata);
     return (1 << meta.capacityExponent >>> 0) - meta.occupied === 0;
   }
-  // ========== 块间操作 (Inter-block Operations) =============
+  // ========== 块间操作 (Operations between blocks)=============
   /**
-   * 将占用的元素从一个块复制到另一个块。
-   *
-   * 复制从 `source` 的第一个元素和 `destination` 的第一个槽位开始。
-   * 实际复制的数量受源中占用元素数量、目标物理容量以及 `slots` 中指定的限制所限制。
-   *
-   * 必要时会增加目标的占用数以涵盖复制的元素。目标的容量保持不变。
-   *
-   * 该操作在 `dataBus` 上使用 `Uint8Array.prototype.copyWithin()`，
-   * 因此返回值为表示数据总线的 `Uint8Array` 本身。
-   *
-   * @param {number} source - 源块句柄。
-   * @param {number} destination - 目标块句柄。
-   * @param {number} [slots=UNKNOWN] - 要复制的最大元素数量。
-   * `UNKNOWN` 表示不施加额外限制所使用的哨兵值。
-   * @returns {Uint8Array} 操作后的 `dataBus`。
-   * @throws {Error} 如果 `source` 或 `destination` 无效或已损坏。
-   */
+  * 将占用元素从一个块复制到另一个块。
+  *
+  * 复制从 `source` 的第一个元素和 `destination` 的第一个槽位开始。
+  * 实际复制的数量受源中占用元素数量、目标物理容量以及 `slots` 中指定限制的约束。
+  *
+  * 必要时会提高目标的占用数，以涵盖复制的元素。目标的容量保持不变。
+  *
+  * 该操作在 `dataBus` 上使用 `Uint8Array.prototype.copyWithin()`，
+  * 因此返回值为代表数据总线的 `Uint8Array` 本身。
+  *
+  * @param {number} source - 源块句柄。
+  * @param {number} destination - 目标块句柄。
+  * @param {number} [slots=UNKNOWN] - 要复制的最大元素数。
+  * `UNKNOWN` 代表哨兵值，用于不施加额外的限制。
+  * @returns {Uint8Array} 操作后的 `dataBus`。
+  * @throws {Error} 如果句柄无效、已损坏，或者目标块正通过 withView() 被借用。
+  */
   copy(source, destination, slots = UNKNOWN) {
     const metaA = {};
     const metaB = {};
     this.extractMetadata(source, metaA);
     this.extractMetadata(destination, metaB);
+    this.assertNotBorrowed(metaB.headerAddress);
     const maxSlotsDest = Math.floor(metaB.byteCapacity / this.wordSize);
     const slotsToCopy = Math.min(metaA.occupied, maxSlotsDest, slots);
     const newOccupied = Math.max(metaB.occupied, slotsToCopy);
@@ -768,23 +808,24 @@ var Balloc = class {
   /**
    * 在块内部复制一段元素区域。
    *
-   * 索引基于零并遵循 `Array.prototype.copyWithin()` 的语义：
-   * `target` 标识目标位置，`start` 标识源起始位置，`length` 标识要复制的最大元素数量。
+   * 索引基于零，并遵循 `Array.prototype.copyWithin()` 的语义：
+   * `target` 标识目标位置，`start` 标识源起始位置，`length` 标识要复制的最大元素数。
    *
-   * 负索引从块容量的末尾开始解释。完成此规范化后，索引将被限制在物理容量之内。
+   * 负索引会从块容量的末尾开始解析。经过此规范化后，索引会被限制在物理容量内。
    * 复制的数量也受实际占用元素以及从 `target` 开始的可用空间的限制。
    *
-   * 该操作支持重叠区域，并且当目标范围超过当前占用数时可以增加块的占用数。
+   * 该操作支持重叠区域，并且当目标范围超过先前的占用数时，可以增加块的占用数。
    *
    * @param {number} handler - 块句柄。
    * @param {number} target - 起始目标索引。
    * @param {number} start - 起始源索引。
-   * @param {number} length - 要复制的最大元素数量。
+   * @param {number} length - 要复制的最大元素数。
    * @returns {Uint8Array} 操作后的 `dataBus`。
-   * @throws {Error} 如果句柄无效或已损坏。
+   * @throws {Error} 如果句柄无效、已损坏，或者块正通过 withView() 被借用。
    */
   copyWithin(handler, target, start, length) {
     const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
     const slots = Math.floor(meta.byteCapacity / this.wordSize);
     target = Math.trunc(target);
     start = Math.trunc(start);
@@ -808,41 +849,37 @@ var Balloc = class {
    *
    * 复制的数量受源中占用元素数量以及目标容量中剩余可用空间的限制。
    *
-   * 该操作支持 `target` 和 `source` 引用同一个块。
-   * 在这种情况下，复制在块自己的区域上执行，并保留 `copyWithin()` 的重叠语义。
+   * 该操作支持 `target` 和 `source` 引用同一个块。在这种情况下，
+   * 复制操作将在块自身的区域上执行，并保留 `copyWithin()` 的重叠语义。
    *
    * @param {number} target - 将接收元素的块句柄。
-   * @param {number} source - 其元素将被追加的块句柄。
+   * @param {number} source - 要将其元素追加进来的块句柄。
    * @returns {number} 实际追加的元素数量。
-   * @throws {Error} 如果 `target` 或 `source` 无效或已损坏。
+   * @throws {Error} 如果句柄无效、已损坏，或者目标块正通过 withView() 被借用。
    */
   append(target, source) {
     const metaTarget = {};
     const metaSource = {};
     this.extractMetadata(target, metaTarget);
     this.extractMetadata(source, metaSource);
+    this.assertNotBorrowed(metaTarget.headerAddress);
     const available = metaTarget.byteCapacity / this.wordSize - metaTarget.occupied;
     const count = Math.min(available, metaSource.occupied);
     if (count === 0) return 0;
     const targetAddress = metaTarget.dataAddress + metaTarget.occupied * this.wordSize;
     const sourceAddress = metaSource.dataAddress;
-    if (target === source) {
-      this.dataBus.copyWithin(targetAddress, sourceAddress, sourceAddress + count * this.wordSize);
-    } else {
-      this.dataBus.copyWithin(targetAddress, sourceAddress, sourceAddress + count * this.wordSize);
-    }
+    this.dataBus.copyWithin(targetAddress, sourceAddress, sourceAddress + count * this.wordSize);
     this.controlAdapter.setUint32(metaTarget.headerAddress + OCCUPIED_OFFSET, metaTarget.occupied + count, IS_LITTLE_ENDIAN);
     return count;
   }
   /**
    * 创建块的独立副本。
    *
-   * 新块具有与原始块相同的物理容量和占用数。
-   * 预留区域中的所有字节（包括当前未占用的位置）都会被复制。
+   * 新块具有与原块相同的物理容量和占用数。预留区域中的所有字节（包括当前未占用的位置）均会被复制。
    *
-   * 新块会获得一个新句柄，并受常规分配和回收规则的约束。
+   * 新块会获得一个新句柄，并继续受正常的分配和回收规则约束。
    *
-   * @param {number} handler - 要克隆的块的句柄。
+   * @param {number} handler - 要克隆的块句柄。
    * @returns {number} 新块的句柄。
    * @throws {Error} 如果句柄无效或已损坏。
    */
@@ -856,23 +893,25 @@ var Balloc = class {
     return cloned;
   }
   /**
-   * 交换与两个块关联的数据区域。
+   * 交换两个块关联的数据区域。
    *
    * 该操作在标头之间交换区域地址、容量和占用数。句柄保持不变：
-   * 操作后，每个句柄继续标识其自己的标头，但该标头现在描述的是先前属于另一个块的区域。
+   * 操作完成后，每个句柄继续标识其自己的标头，但该标头现在描述的是先前属于另一个块的区域。
    *
-   * `dataBus` 中不复制任何数据；仅修改两个标头的元数据。
+   * `dataBus` 中不会复制任何数据；仅修改两个标头的元数据。
    *
    * @param {number} source - 第一个块的句柄。
    * @param {number} target - 第二个块的句柄。
    * @returns {void}
-   * @throws {Error} 如果 `source` 或 `target` 无效或已损坏。
+   * @throws {Error} 如果句柄无效、已损坏，或者任何一个块正通过 withView() 被借用。
    */
   swap(source, target) {
     const metaA = {};
     const metaB = {};
     this.extractMetadata(source, metaA);
     this.extractMetadata(target, metaB);
+    this.assertNotBorrowed(metaA.headerAddress);
+    this.assertNotBorrowed(metaB.headerAddress);
     this.controlAdapter.setUint32(metaA.headerAddress + ADDRESS_OFFSET, metaB.dataAddress, IS_LITTLE_ENDIAN);
     this.controlAdapter.setUint32(metaB.headerAddress + ADDRESS_OFFSET, metaA.dataAddress, IS_LITTLE_ENDIAN);
     this.controlAdapter.setUint8(metaA.headerAddress + CAPACITY_OFFSET, metaB.capacityExponent);
@@ -884,10 +923,10 @@ var Balloc = class {
   /**
    * 序列化内存块的内容和元数据。
    *
-   * 该方法通过 `pick()` 提取块的占用数据，将其与容量和单词类型信息一起
-   * 组合到数据信封（envelope）中，并使用 CBOR 格式对其进行编码。
+   * 该方法通过 `pick()` 提取块的占用数据，连同容量和字类型（word type）信息
+   * 一起打包成一个数据信封（envelope），并使用 CBOR 格式对其进行编码。
    *
-   * @param {number} handler - 要序列化的块的句柄。
+   * @param {number} handler - 要序列化的块句柄。
    * @returns {Uint8Array} 包含序列化块数据的缓冲区。
    * @throws {Error} 如果句柄无效或已损坏。
    */
@@ -914,12 +953,12 @@ var Balloc = class {
   /**
    * 从序列化数据恢复内存块。
    *
-   * 解码 CBOR 信封，验证序列化数据的单词类型是否与当前分配器实例兼容，
-   * 并分配一个容纳内容所需容量的新块。然后，在的新块中恢复原始数据和占用数。
+   * 解码 CBOR 信封，验证序列化数据的字类型是否与当前的分配器实例兼容，
+   * 并分配一个能够容纳该内容所需容量的新块。随后，在新的块中恢复原始数据和占用数。
    *
    * @param {Uint8Array|ArrayBuffer} serialized - 包含序列化数据的缓冲区。
    * @returns {number} 重新创建的新块的句柄。
-   * @throws {Error} 如果解码数据的单词类型与分配器中配置的不同。
+   * @throws {Error} 如果解码数据的字类型与分配器配置的不一致。
    */
   load(serialized) {
     if (!(serialized instanceof ArrayBuffer) && !(serialized instanceof Uint8Array)) {
@@ -960,19 +999,49 @@ var Balloc = class {
   }
   // ============= 工具 (UTILITIES) ==============
   /**
+   * 防止对已借用的块进行修改操作。
+   *
+   * 检查与所提供地址关联的标头中的 VIEW_LOCK 标志。
+   *
+   * @param {number} headerAddress - controlBus 中的标头地址。
+   * @returns {void}
+   * @throws {Error} 如果块正通过 withView() 被借用。
+   * @private
+   */
+  assertNotBorrowed(headerAddress) {
+    if (this.controlBus[headerAddress + FLAGS_OFFSET] & VIEW_LOCK) {
+      throw new Error("Block is borrowed");
+    }
+  }
+  /**
+   * 防止在存在任何借用片段时替换或重新映射 dataBus 的操作。
+   *
+   * @returns {void}
+   * @throws {Error} 如果有任何块通过 withView() 被借用。
+   * @private
+   */
+  assertNoActiveViews() {
+    for (let i = 0; i < this.controlPointer; i += HEADER_SIZE) {
+      if (this.controlBus[i + COOKIE_OFFSET] === 0) continue;
+      if (this.controlBus[i + FLAGS_OFFSET] & VIEW_LOCK) {
+        throw new Error("Cannot remap memory while a block is borrowed");
+      }
+    }
+  }
+  /**
    * [内部使用]
    * 解码与句柄关联的元数据。
    *
-   * 句柄被拆分为代和标头地址。然后重新计算标头中存储的 Cookie 以验证组合；
-   * 只有在此验证之后才会读取元数据。
+   * 句柄被拆分为代数和标头地址。然后重新计算标头中存储的 cookie 以验证该组合；
+   * 只有在通过此验证后才会读取元数据。
    *
-   * 解码后的字段被写入 `out` 对象中，该对象由函数自身返回。
-   * 可以在多次调用之间重用该对象以避免新的分配。
+   * 解码后的字段写入 `out` 对象中，该对象由函数自身返回。
+   * 可以在多次调用之间复用该对象以避免新的分配。
    *
    * @param {number} handler - 要解码和验证的句柄。
-   * @param {Metadata} out - 将接收解码元数据的对象。
+   * @param {Metadata} out - 将接收解码后元数据的对象。
    * @returns {Metadata} 在 `out` 中提供的相同引用。
-   * @throws {Error} 如果标头 Cookie 与句柄不匹配，或者句柄未标识有效的标头。
+   * @throws {Error} 如果标头 cookie 与句柄不匹配，或者句柄未能标识有效的标头。
    * @private
    */
   extractMetadata(handler, out) {
@@ -990,19 +1059,19 @@ var Balloc = class {
   }
   /**
    * [内部使用]
-   * 计算标头的验证 Cookie。
+   * 计算标头的验证 cookie。
    *
-   * Cookie 通过快速哈希（fast hash）由标头地址和 11 位代数派生而来。
-   * 结果被缩减为 8 位。
+   * cookie 是通过快速哈希（fast hash）从标头地址和 11 位代数派生而来的。
+   * 结果会被缩减为 8 位。
    *
-   * 零值保留为无效标头指示符；因此，当计算产生零时，该方法返回 `1`。
+   * 值零被保留作为无效标头的指示符；因此，当计算结果为零时，该方法返回 `1`。
    *
-   * Cookie 不构成加密机制。其目的是在分配器的内存管理模型中
-   * 检测无效、过时（stale）或损坏的句柄。
+   * 该 cookie 不构成加密机制。其目的是在分配器的内存管理模型中
+   * 检测无效、陈旧（stale）或损坏的句柄。
    *
    * @param {number} addr - 标头地址。
-   * @param {number} gen - 与句柄关联的代。仅考虑最低的 11 位。
-   * @returns {number} 范围在 [1, 255] 内的 8 位 Cookie。
+   * @param {number} gen - 与句柄关联的代数。仅考虑最低的 11 位。
+   * @returns {number} 范围在 [1, 255] 内的 8 位 cookie。
    * @private
    */
   bakeCookie(addr, gen) {
@@ -1011,10 +1080,10 @@ var Balloc = class {
   /**
    * 返回当前存储在回收列表中的区域数量。
    *
-   * 每个区域对应一个无法直接归还给 `dataBus`顶部的已释放块，
-   * 因此保留下来以便未来容量相同的分配进行重用。
+   * 每个区域对应一个无法直接交还给 `dataBus` 顶部的释放块，
+   * 因此它仍然可供未来相同容量的分配进行复用。
    *
-   * @returns {number} `recycle` 中维护的空闲区域数量。
+   * @returns {number} 保存在 `recycle` 中的空闲区域数量。
    */
   recycleCount() {
     let count = 0;
@@ -1024,9 +1093,9 @@ var Balloc = class {
     return count;
   }
   /**
-   * 返回当前存储在回收列表中的区域所属的字节总数。
+   * 返回当前存储在回收列表中的区域所属的总字节数。
    *
-   * 该值通过将每个空闲区域的容量乘以针对该容量注册的区域数量相加来计算。
+   * 该值是通过将每个空闲区域的容量乘以该容量注册的区域数量相加来计算的。
    *
    * @returns {number} 可回收区域占用的字节数。
    */
@@ -1040,9 +1109,9 @@ var Balloc = class {
   /**
    * 返回不属于当前可回收区域的已分配字节数。
    *
-   * 该值通过从 `dataPointer` 的总推进量中减去 `recycle` 中维护的空闲区域所属的字节来获得。
+   * 该值是通过从 `dataPointer` 的总推进量中减去保存在 `recycle` 中的空闲区域所属的字节数来获取的。
    *
-   * @returns {number} `dataBus` 已使用区域内与不可回收区域关联的字节数。
+   * @returns {number} 在 `dataBus` 已使用区域内，与不可回收区域关联的字节数。
    */
   get allocatedBytes() {
     return this.dataPointer - this.recycleBytes;
@@ -1051,7 +1120,7 @@ var Balloc = class {
    * 返回 `dataBus` 顶部尚未使用的字节数。
    *
    * 此空间对应于 `dataPointer` 与当前为缓冲区预留容量末尾之间的区域。
-   * @returns {number} `dataPointer` 之后的可用字节数。
+   * @returns {number} `dataPointer` 之后可用的字节数。
    */
   get unallocatedBytes() {
     return this.size - this.dataPointer;
@@ -1059,13 +1128,13 @@ var Balloc = class {
   /**
    * 返回可回收内存与已使用堆区域之间的比率。
    *
-   * 该指标将 `recycle` 中维护的空闲区域视为碎片化，并使用 `dataPointer` 作为分母。
-   * 当堆未曾使用任何字节时，结果为零。
+   * 该指标将保存在 `recycle` 中的空闲区域视为碎片，并以 `dataPointer` 作为分母。
+   * 当堆未消耗任何字节时，结果为零。
    *
-   * 该值不代表整个 `dataBus` 容量的分数，而是具体表示 bump 指针已遍历区域内
-   * 可回收字节的比例。
+   * 该值不代表整个 `dataBus` 容量的分数，而是具体代表碰撞指针（bump pointer）
+   * 已遍历区域内可回收字节的比例。
    *
-   * @returns {number} 在正常运行条件下的 [0, 1] 范围内的碎片化比率。
+   * @returns {number} 正常运行条件下的碎片率，范围在 [0, 1] 内。
    */
   get fragmentationRatio() {
     if (this.dataPointer === 0) return 0;
