@@ -332,7 +332,7 @@ API 方法按功能归为以下类别：
 | `fillAll()` | 填充整个数据块并将其全部标记为已占用 |
 | `put()` | 将数组复制到数据块 |
 | `pick()` | 将已占用的元素复制出数据块 |
-| `withView()` | Borrow a typed view over occupied elements |
+| `withView()` | 借用覆盖已占用元素的类型化视图 |
 
 ### 数据块间交换
 
