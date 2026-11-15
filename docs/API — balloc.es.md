@@ -682,7 +682,7 @@ const count = memory.occupied(handler);
 
 ### `isFull(handler)`
 
-Comprobar si el bloque está completamente ocupado. Returns `true` when the number of occupied elements equals the block's physical capacity; otherwise returns `false`.
+Comprobar si el bloque está completamente ocupado. Devuelve `true` cuando el número de elementos ocupados coincide con la capacidad física del bloque; en caso contrario, devuelve `false`.
 
 
 Devuelve el número total de slots físicos disponibles.
