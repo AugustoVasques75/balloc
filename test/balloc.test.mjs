@@ -678,4 +678,197 @@ describe("Balloc", () => {
         });
     });
 
+
+    describe("withView", () => {
+        it("retorna uma TypedArray nativa com acesso direto ao dataBus", () => {
+            const memory = new Balloc(64, "32u");
+            const handler = memory.alloc(8);
+
+            memory.put(handler, [10, 20, 30]);
+
+            memory.withView(handler, view => {
+                expect(view).toBeInstanceOf(Uint32Array);
+                expect(view.buffer).toBe(memory.dataBus.buffer);
+                expect(view.length).toBe(3);
+                expect(view).toEqual(new Uint32Array([10, 20, 30]));
+            });
+        });
+
+        it("modificações na view são refletidas diretamente no bloco", () => {
+            const memory = new Balloc(64, "32u");
+            const handler = memory.alloc(8);
+
+            memory.put(handler, [10, 20, 30]);
+
+            memory.withView(handler, view => {
+                view[0] = 100;
+                view[1] = 200;
+            });
+
+            expect(memory.pick(handler)).toEqual(new Uint32Array([100, 200, 30]));
+        });
+
+        it("modificações no bloco são visíveis pela view", () => {
+            const memory = new Balloc(64, "32u");
+            const handler = memory.alloc(8);
+
+            memory.put(handler, [10, 20, 30]);
+
+            memory.withView(handler, view => {
+                expect(view[1]).toBe(memory.get(handler, 1));
+            });
+        });
+
+        it("retorna o resultado produzido pelo callback", () => {
+            const memory = new Balloc(64, "32u");
+            const handler = memory.alloc(4);
+
+            memory.put(handler, [10, 20, 30]);
+
+            const result = memory.withView(handler, view => view.reduce((a, b) => a + b, 0));
+
+            expect(result).toBe(60);
+        });
+
+        it("rejeita callbacks que não sejam funções", () => {
+            const memory = new Balloc();
+            const handler = memory.alloc(4);
+
+            expect(() => memory.withView(handler, null)).toThrow(TypeError);
+            expect(() => memory.withView(handler, undefined)).toThrow(TypeError);
+            expect(() => memory.withView(handler, 123)).toThrow(TypeError);
+        });
+
+        it("rejeita empréstimo aninhado do mesmo segmento", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(8);
+
+            expect(() => memory.withView(handler, () => {
+                memory.withView(handler, () => { });
+            })).toThrow(/borrowed/i);
+        });
+
+        it("permite empréstimos simultâneos de segmentos diferentes", () => {
+            const memory = new Balloc(128, "8u");
+            const first = memory.alloc(8);
+            const second = memory.alloc(8);
+
+            memory.put(first, [10, 20]);
+            memory.put(second, [30, 40]);
+
+            memory.withView(first, viewA => {
+                memory.withView(second, viewB => {
+                    viewA[0] = 100;
+                    viewB[0] = 200;
+                });
+            });
+
+            expect(memory.pick(first)).toEqual(new Uint8Array([100, 20]));
+            expect(memory.pick(second)).toEqual(new Uint8Array([200, 40]));
+        });
+
+        it("libera o empréstimo quando o callback lança uma exceção", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(8);
+
+            memory.put(handler, [10, 20]);
+
+            expect(() => memory.withView(handler, () => {
+                throw new Error("callback failure");
+            })).toThrow("callback failure");
+
+            expect(() => memory.set(handler, 0, 99)).not.toThrow();
+            expect(memory.get(handler, 0)).toBe(99);
+        });
+
+        it("libera o empréstimo após execução normal", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(8);
+
+            memory.put(handler, [10, 20]);
+
+            memory.withView(handler, view => {
+                view[0] = 99;
+            });
+
+            expect(() => memory.withView(handler, () => { })).not.toThrow();
+            expect(() => memory.set(handler, 1, 88)).not.toThrow();
+        });
+
+        it.each([
+            ["push", (m, h) => m.push(h, 1)],
+            ["pop", (m, h) => m.pop(h)],
+            ["nudge", (m, h) => m.nudge(h, 1)],
+            ["pull", (m, h) => m.pull(h)],
+            ["set", (m, h) => m.set(h, 0, 1)],
+            ["put", (m, h) => m.put(h, [1])],
+            ["clear", (m, h) => m.clear(h)],
+            ["fill", (m, h) => m.fill(h, 1)],
+            ["fillAll", (m, h) => m.fillAll(h, 1)],
+            ["copyWithin", (m, h) => m.copyWithin(h, 0, 0, 1)],
+            ["free", (m, h) => m.free(h)],
+            ["realloc", (m, h) => m.realloc(h)]
+        ])("bloqueia %s durante o empréstimo", (_, operation) => {
+            const memory = new Balloc(128, "8u");
+            const handler = memory.alloc(8);
+
+            memory.put(handler, [10, 20]);
+
+            expect(() => memory.withView(handler, () => {
+                operation(memory, handler);
+            })).toThrow(/borrowed/i);
+
+            expect(memory.pick(handler)).toEqual(new Uint8Array([10, 20]));
+        });
+
+        it.each([
+            ["gc", memory => memory.gc()],
+            ["grow", memory => memory.grow()]
+        ])("bloqueia %s enquanto existe uma view ativa", (_, operation) => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(8);
+
+            expect(() => memory.withView(handler, () => {
+                operation(memory);
+            })).toThrow(/borrowed/i);
+        });
+
+        it("permite leitura do segmento durante o empréstimo", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(8);
+
+            memory.put(handler, [10, 20, 30]);
+
+            memory.withView(handler, view => {
+                expect(memory.get(handler, 0)).toBe(view[0]);
+                expect(memory.occupied(handler)).toBe(3);
+                expect(memory.length(handler)).toBe(8);
+                expect(memory.pick(handler)).toEqual(new Uint8Array([10, 20, 30]));
+            });
+        });
+
+        it("mantém o armazenamento estável durante empréstimos de outros segmentos", () => {
+            const memory = new Balloc(128, "8u");
+            const first = memory.alloc(8);
+            const second = memory.alloc(8);
+
+            memory.put(first, [10, 20]);
+            memory.put(second, [30, 40]);
+
+            memory.withView(first, view => {
+                const buffer = view.buffer;
+                const address = view.byteOffset;
+
+                memory.withView(second, other => {
+                    other[0] = 99;
+                });
+
+                expect(view.buffer).toBe(buffer);
+                expect(view.byteOffset).toBe(address);
+                expect(view).toEqual(new Uint8Array([10, 20]));
+            });
+        });
+    });
+
+
 });

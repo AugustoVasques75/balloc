@@ -24,14 +24,14 @@ const UNKNOWN = 0xFFFFFFFF >>> 0;
  * 
  */
 const BUCKET_MAPPING = Object.freeze({
-    "8u":  { type: "Uint8",  bits: 8 },
-    "16u": { type: "Uint16",  bits: 16 },
-    "32u": { type: "Uint32",  bits: 32 },
-    "64u": { type: "BigUint64",  bits: 64 },
-    "8i":  { type: "Int8",   bits: 8 },
-    "16i": { type: "Int16",   bits: 16 },
-    "32i": { type: "Int32",   bits: 32 },
-    "64i": { type: "BigInt64",   bits: 64 },
+    "8u": { type: "Uint8", bits: 8 },
+    "16u": { type: "Uint16", bits: 16 },
+    "32u": { type: "Uint32", bits: 32 },
+    "64u": { type: "BigUint64", bits: 64 },
+    "8i": { type: "Int8", bits: 8 },
+    "16i": { type: "Int16", bits: 16 },
+    "32i": { type: "Int32", bits: 32 },
+    "64i": { type: "BigInt64", bits: 64 },
     "16f": { type: "Float16", bits: 16 },
     "32f": { type: "Float32", bits: 32 },
     "64f": { type: "Float64", bits: 64 }
@@ -57,17 +57,24 @@ const IS_LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
 
 /**
  * Formato dos metadados.
- *  0               4                8               9             10              
- *  [32bits address][32bits occupied][8bits capacity][8bits cookie][48bits reserved]
- * 
- * Total: 4 + 4 + 1 + 1 + 6 = 16 bytes
+ *
+ * [32bits address][32bits occupied][8bits capacity][8bits cookie][8bits flags][40bits reserved]
+ *
+ *
+ * Total: 16 bytes
  */
 const HEADER_SIZE = 16 >>> 0;
-
-const ADDRESS_OFFSET  = 0 >>> 0;
+const ADDRESS_OFFSET = 0 >>> 0;
 const OCCUPIED_OFFSET = 4 >>> 0;
 const CAPACITY_OFFSET = 8 >>> 0;
-const COOKIE_OFFSET   = 9 >>> 0;
+const COOKIE_OFFSET = 9 >>> 0;
+const FLAGS_OFFSET = 10 >>> 0;
+
+/**
+ * Flags:
+ * bit 0: VIEW_LOCK
+ */
+const VIEW_LOCK = 1 >>> 0;
 
 
 const ROTATE_32BITS = 4294967296;
@@ -124,17 +131,17 @@ export default class Balloc {
      * @throws {RangeError} Se `bucketSize` não for um identificador de bucket válido.
      * @throws {RangeError} Se `metadataSize` estiver fora do intervalo permitido.
      */
-   constructor(size = 65535, bucketSize = "32u", metadataSize = 1024) {
+    constructor(size = 65535, bucketSize = "32u", metadataSize = 1024) {
 
         if (!Number.isSafeInteger(size) || size < 2 || size > 0x80000000) throw new RangeError(`Parameter size must be in range [2, 0x80000000] but size is ${size}`);
 
-        
+
         if (!BUCKET_MAPPING[bucketSize]) {
             throw new RangeError(`bucketSize must be in ([ 8 || 16 || 32 || 64][ u || i ]) || ([ 16 || 32 || 64][ f ]) but I found ${bucketSize}`);
         }
 
         if (!Number.isSafeInteger(metadataSize) || metadataSize < HEADER_SIZE || metadataSize > 0x80000000) throw new RangeError(`Parameter metadataSize must be in range [HEADER_SIZE, 0x80000000] but metadataSize is ${metadataSize}`);
-        
+
         this.wordType = bucketSize;
         this.bucketType = BUCKET_MAPPING[bucketSize].type;
         this.bucketSize = BUCKET_MAPPING[bucketSize].bits >>> 0;
@@ -165,7 +172,7 @@ export default class Balloc {
             byteCapacity: 0 >>> 0,
             occupied: 0 >>> 0,
         };
-        
+
     }
 
     // ========== ALOCAÇÃO ==========
@@ -196,7 +203,6 @@ export default class Balloc {
     alloc(size = 16) {
         if (!Number.isSafeInteger(size) || size < 2 || size > 0x80000000) throw new RangeError(`Parameter size must be in range [2, 0x80000000] but size is ${size}`);
 
-
         const capacity = (32 - Math.clz32(size - 1));
         const blockSize = (1 << capacity >>> 0) * this.wordSize;
 
@@ -209,21 +215,21 @@ export default class Balloc {
         }
 
         let headerAddress = 0 >>> 0;
-
         if (this.echoPointer > this.controlPointer) {
             this.echoPointer -= 4;
-            headerAddress = this.controlAdapter.getUint32(this.echoPointer, IS_LITTLE_ENDIAN);            
+            headerAddress = this.controlAdapter.getUint32(this.echoPointer, IS_LITTLE_ENDIAN);
         } else {
             if (this.controlPointer + HEADER_SIZE > this.controlAdapter.byteLength) this.headerGrow();
             headerAddress = this.controlPointer;
-            this.controlPointer+= HEADER_SIZE;
-            this.echoPointer+= HEADER_SIZE;
+            this.controlPointer += HEADER_SIZE;
+            this.echoPointer += HEADER_SIZE;
         }
 
         this.controlAdapter.setUint32(headerAddress + ADDRESS_OFFSET, dataAddress, IS_LITTLE_ENDIAN);
         this.controlAdapter.setUint32(headerAddress + OCCUPIED_OFFSET, 0, IS_LITTLE_ENDIAN);
         this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, capacity);
         this.controlAdapter.setUint8(headerAddress + COOKIE_OFFSET, this.bakeCookie(headerAddress, ++this.generation));
+        this.controlBus[headerAddress + FLAGS_OFFSET] = 0;
 
         return (this.generation & CLAMP_11BITS) * ROTATE_32BITS + headerAddress;
     }
@@ -251,19 +257,19 @@ export default class Balloc {
      */
     realloc(handler) {
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
-        let headerAddress = handler >>> 0;
-
+        const headerAddress = handler >>> 0;
         const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
         const occupied = this.controlAdapter.getUint32(headerAddress + OCCUPIED_OFFSET, IS_LITTLE_ENDIAN);
         const capacity = this.controlAdapter.getUint8(headerAddress + CAPACITY_OFFSET);
         const cookie = this.controlAdapter.getUint8(headerAddress + COOKIE_OFFSET);
 
-
         if (cookie !== this.bakeCookie(headerAddress, generation)) {
             throw new Error("Invalid or corrupted handle");
         }
 
-        if (capacity >= 31) throw new AggregateError([new Error("Can´t reallocate handler.") ,new RangeError("Capacity has reached its limit.")], "Internal Error.");
+        this.assertNotBorrowed(headerAddress);
+
+        if (capacity >= 31) throw new AggregateError([new Error("Can´t reallocate handler."), new RangeError("Capacity has reached its limit.")], "Internal Error.");
 
         const newCapacity = capacity + 1;
         const newBlockSize = (1 << newCapacity >>> 0) * this.wordSize;
@@ -272,13 +278,10 @@ export default class Balloc {
         if (dataAddress + oldBlockSize === this.dataPointer) {
             while (dataAddress + newBlockSize > this.size) this.grow();
 
-            this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, newCapacity, IS_LITTLE_ENDIAN);
+            this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, newCapacity);
             this.dataPointer = dataAddress + newBlockSize;
-
             return;
         }
-
-        this.recyclePush(oldBlockSize, dataAddress);
 
         let newAddress = this.recyclePop(newBlockSize);
 
@@ -289,10 +292,12 @@ export default class Balloc {
             this.dataPointer += newBlockSize;
         }
 
-        this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, newCapacity);
         this.dataBus.copyWithin(newAddress, dataAddress, dataAddress + occupied * this.wordSize);
 
         this.controlAdapter.setUint32(headerAddress + ADDRESS_OFFSET, newAddress, IS_LITTLE_ENDIAN);
+        this.controlAdapter.setUint8(headerAddress + CAPACITY_OFFSET, newCapacity);
+
+        this.recyclePush(oldBlockSize, dataAddress);
     }
 
     /**
@@ -311,35 +316,31 @@ export default class Balloc {
      */
     free(handler) {
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
-        let headerAddress = handler >>> 0;
-
+        const headerAddress = handler >>> 0;
         const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
         const capacity = this.controlAdapter.getUint8(headerAddress + CAPACITY_OFFSET);
         const cookie = this.controlAdapter.getUint8(headerAddress + COOKIE_OFFSET);
-
 
         if (cookie !== this.bakeCookie(headerAddress, generation)) {
             throw new Error("Invalid or corrupted handle");
         }
 
-        const blockSize = (1 << capacity >>> 0) * this.wordSize;
+        this.assertNotBorrowed(headerAddress);
 
+        const blockSize = (1 << capacity >>> 0) * this.wordSize;
         this.controlAdapter.setUint8(headerAddress + COOKIE_OFFSET, 0);
 
         if (this.echoPointer + 4 <= this.controlBus.byteLength) {
             this.controlAdapter.setUint32(this.echoPointer, headerAddress, IS_LITTLE_ENDIAN);
             this.echoPointer += 4;
-        }        
-
+        }
 
         if (dataAddress + blockSize === this.dataPointer) {
             this.dataPointer = dataAddress;
         } else {
             this.recyclePush(blockSize, dataAddress);
         }
-
     }
-
     // ========== RECICLAGEM ==========
 
     /**
@@ -432,18 +433,24 @@ export default class Balloc {
      * @returns {void}
      */
     gc() {
+        this.assertNoActiveViews();
+
         const newDataBus = new Uint8Array(this.dataBus.buffer.byteLength);
         this.recycle.clear();
         this.dataPointer = 0 >>> 0;
-        for (let i = 0; i < this.controlPointer; i+= HEADER_SIZE) {
+
+        for (let i = 0; i < this.controlPointer; i += HEADER_SIZE) {
             if (this.controlBus[i + COOKIE_OFFSET] === 0) continue;
+
             const start = this.controlAdapter.getUint32(i + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
             const size = (1 << this.controlBus[i + CAPACITY_OFFSET] >>> 0) * this.wordSize;
             const end = start + size;
+
             newDataBus.set(this.dataBus.subarray(start, end), this.dataPointer);
             this.controlAdapter.setUint32(i + ADDRESS_OFFSET, this.dataPointer, IS_LITTLE_ENDIAN);
             this.dataPointer += size;
         }
+
         this.dataBus = newDataBus;
         this.dataAdapter = new DataView(this.dataBus.buffer);
         this.auxiliary = new globalThis[`${this.bucketType}Array`](this.dataBus.buffer);
@@ -466,6 +473,8 @@ export default class Balloc {
      * @private
      */
     grow() {
+        this.assertNoActiveViews();
+
         if (this.size > 0x80000000) throw new RangeError("Data bus capacity exceeded");
 
         const newSize = (this.size * 2) >>> 0;
@@ -517,13 +526,13 @@ export default class Balloc {
      * @throws {Error} Se o handler for inválido ou estiver corrompido.
      */
     push(handler, value) {
-
         const meta = this.extractMetadata(handler, this.metadata);
+        this.assertNotBorrowed(meta.headerAddress);
 
         if ((meta.occupied + 1) * this.wordSize > meta.byteCapacity) return false;
 
-        this.writer(meta.dataAddress + meta.occupied * this.wordSize , value, IS_LITTLE_ENDIAN);
-        this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied + 1,IS_LITTLE_ENDIAN);
+        this.writer(meta.dataAddress + meta.occupied * this.wordSize, value, IS_LITTLE_ENDIAN);
+        this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied + 1, IS_LITTLE_ENDIAN);
 
         return true;
     }
@@ -542,10 +551,11 @@ export default class Balloc {
      */
     pop(handler) {
         const meta = this.extractMetadata(handler, this.metadata);
+        this.assertNotBorrowed(meta.headerAddress);
 
         if (meta.occupied === 0) return undefined;
 
-        this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied - 1,IS_LITTLE_ENDIAN);
+        this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied - 1, IS_LITTLE_ENDIAN);
         return this.reader(meta.dataAddress + (meta.occupied - 1) * this.wordSize, IS_LITTLE_ENDIAN);
     }
 
@@ -585,12 +595,13 @@ export default class Balloc {
      */
     nudge(handler, value) {
         const meta = this.extractMetadata(handler, this.metadata);
+        this.assertNotBorrowed(meta.headerAddress);
 
         if ((meta.occupied + 1) * this.wordSize > meta.byteCapacity) return false;
 
         this.dataBus.copyWithin(meta.dataAddress + this.wordSize, meta.dataAddress, meta.dataAddress + meta.occupied * this.wordSize);
         this.writer(meta.dataAddress, value, IS_LITTLE_ENDIAN);
-        this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied + 1,IS_LITTLE_ENDIAN);
+        this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied + 1, IS_LITTLE_ENDIAN);
 
         return true;
     }
@@ -610,12 +621,14 @@ export default class Balloc {
      */
     pull(handler) {
         const meta = this.extractMetadata(handler, this.metadata);
+        this.assertNotBorrowed(meta.headerAddress);
 
         if (meta.occupied === 0) return undefined;
 
         const result = this.reader(meta.dataAddress, IS_LITTLE_ENDIAN);
         this.dataBus.copyWithin(meta.dataAddress, meta.dataAddress + this.wordSize, meta.dataAddress + meta.occupied * this.wordSize);
         this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied - 1, IS_LITTLE_ENDIAN);
+
         return result;
     }
 
@@ -632,7 +645,7 @@ export default class Balloc {
 
         if (meta.occupied === 0) return undefined;
 
-        return this.reader(meta.dataAddress, IS_LITTLE_ENDIAN);    
+        return this.reader(meta.dataAddress, IS_LITTLE_ENDIAN);
     }
 
     // ========== ACESSO ALEATÓRIO ==========
@@ -677,7 +690,7 @@ export default class Balloc {
      * elemento não for encontrado ou se o bloco estiver vazio.
      * @throws {Error} Se o handler for inválido ou estiver corrompido.
      */
-    indexOf(handler, searchElement, fromIndex=0) {
+    indexOf(handler, searchElement, fromIndex = 0) {
         const meta = this.extractMetadata(handler, this.metadata);
 
         if (meta.occupied === 0) return -1;
@@ -705,7 +718,7 @@ export default class Balloc {
      * elemento não for encontrado ou se o bloco estiver vazio.
      * @throws {Error} Se o handler for inválido ou estiver corrompido.
      */
-    lastIndexOf(handler, searchElement, fromIndex=-1) {
+    lastIndexOf(handler, searchElement, fromIndex = -1) {
         const meta = this.extractMetadata(handler, this.metadata);
 
         if (meta.occupied === 0) return -1;
@@ -716,18 +729,18 @@ export default class Balloc {
     }
 
 
-     /**
-     * Retorna o elemento ocupado em um índice baseado em zero.
-     *
-     * Índices fora do intervalo `[0, occupied)` não são considerados erro e
-     * resultam em `undefined`.
-     *
-     * @param {number} handler - Handler do bloco.
-     * @param {number} index - Índice baseado em zero do elemento.
-     * @returns {number|undefined} Valor armazenado no índice ou `undefined` se
-     * o índice estiver fora da região ocupada.
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
-     */
+    /**
+    * Retorna o elemento ocupado em um índice baseado em zero.
+    *
+    * Índices fora do intervalo `[0, occupied)` não são considerados erro e
+    * resultam em `undefined`.
+    *
+    * @param {number} handler - Handler do bloco.
+    * @param {number} index - Índice baseado em zero do elemento.
+    * @returns {number|undefined} Valor armazenado no índice ou `undefined` se
+    * o índice estiver fora da região ocupada.
+    * @throws {Error} Se o handler for inválido ou estiver corrompido.
+    */
     get(handler, index) {
 
         const meta = this.extractMetadata(handler, this.metadata);
@@ -752,6 +765,7 @@ export default class Balloc {
      */
     set(handler, index, value) {
         const meta = this.extractMetadata(handler, this.metadata);
+        this.assertNotBorrowed(meta.headerAddress);
 
         if (index < 0 || index >= meta.occupied) return false;
 
@@ -774,13 +788,14 @@ export default class Balloc {
      * @returns {void}
      * @throws {Error} Se o handler for inválido ou estiver corrompido.
      */
-    clear(handler, value=0) {
+    clear(handler, value = 0) {
         const meta = this.extractMetadata(handler, this.metadata);
+        this.assertNotBorrowed(meta.headerAddress);
 
         const slots = meta.byteCapacity / this.wordSize;
         const rawAddress = meta.dataAddress >>> this.wordShift;
 
-        this.auxiliary.fill(value, rawAddress, rawAddress + slots);        
+        this.auxiliary.fill(value, rawAddress, rawAddress + slots);
         this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, 0, IS_LITTLE_ENDIAN);
     }
 
@@ -808,7 +823,8 @@ export default class Balloc {
      */
     fill(handler, value, start = 0, end = null) {
         const meta = this.extractMetadata(handler, this.metadata);
-        
+        this.assertNotBorrowed(meta.headerAddress);
+
         const slots = meta.byteCapacity / this.wordSize;
         const lastIndex = end ?? slots;
 
@@ -823,7 +839,6 @@ export default class Balloc {
         }
 
         const rawAddress = meta.dataAddress >>> this.wordShift;
-
         this.auxiliary.fill(value, rawAddress + start, rawAddress + lastIndex);
         this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, lastIndex, IS_LITTLE_ENDIAN);
     }
@@ -842,7 +857,8 @@ export default class Balloc {
      */
     fillAll(handler, value) {
         const meta = this.extractMetadata(handler, this.metadata);
-        
+        this.assertNotBorrowed(meta.headerAddress);
+
         const rawAddress = meta.dataAddress >>> this.wordShift;
         const capacityElements = meta.byteCapacity / this.wordSize;
 
@@ -870,11 +886,10 @@ export default class Balloc {
      */
     put(handler, data) {
         const meta = this.extractMetadata(handler, this.metadata);
+        this.assertNotBorrowed(meta.headerAddress);
 
         const rawAddress = meta.dataAddress >>> this.wordShift;
         const length = Math.min(1 << meta.capacityExponent >>> 0, data.length);
-
-        meta.occupied = Math.max(length, meta.occupied);
 
         if (Array.isArray(data)) {
             this.auxiliary.set(data.slice(0, length), rawAddress);
@@ -883,35 +898,69 @@ export default class Balloc {
         } else {
             const actual = data?.constructor?.name ?? (data === null ? 'null' : typeof data);
             throw new TypeError(`data must be Array or TypedArray, but ${actual} was given.`);
-        }    
-        this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied, IS_LITTLE_ENDIAN);
+        }
+
+        this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, Math.max(length, meta.occupied), IS_LITTLE_ENDIAN);
     }
 
-     /**
-     * Retorna uma cópia dos elementos atualmente ocupados pelo bloco.
-     *
-     * O resultado é uma `TypedArray` do mesmo tipo configurado por
-     * `bucketSize`. A capacidade física não ocupada não é incluída no resultado.
-     *
-     * A operação não expõe diretamente o armazenamento interno: o método
-     * utiliza `TypedArray.prototype.slice()`, produzindo uma nova view com
-     * armazenamento independente.
-     *
-     * @param {number} handler - Handler do bloco.
-     * @returns {TypedArray} Cópia dos elementos ocupados pelo bloco. Quando
-     * o bloco está vazio, retorna uma `TypedArray` vazia do tipo configurado.
-     * @throws {Error} Se o handler for inválido ou estiver corrompido.
-     */
+    /**
+    * Retorna uma cópia dos elementos atualmente ocupados pelo bloco.
+    *
+    * O resultado é uma `TypedArray` do mesmo tipo configurado por
+    * `bucketSize`. A capacidade física não ocupada não é incluída no resultado.
+    *
+    * A operação não expõe diretamente o armazenamento interno: o método
+    * utiliza `TypedArray.prototype.slice()`, produzindo uma nova view com
+    * armazenamento independente.
+    *
+    * @param {number} handler - Handler do bloco.
+    * @returns {TypedArray} Cópia dos elementos ocupados pelo bloco. Quando
+    * o bloco está vazio, retorna uma `TypedArray` vazia do tipo configurado.
+    * @throws {Error} Se o handler for inválido ou estiver corrompido.
+    */
     pick(handler) {
         const meta = this.extractMetadata(handler, this.metadata);
 
         const rawAddress = meta.dataAddress >>> this.wordShift;
 
         if (meta.occupied === 0) {
-            return this.auxiliary.slice(rawAddress, rawAddress); 
-        }        
+            return this.auxiliary.slice(rawAddress, rawAddress);
+        }
 
         return this.auxiliary.slice(rawAddress, rawAddress + meta.occupied);
+    }
+
+    /**
+     * Executa um callback sobre uma view direta da região ocupada pelo bloco.
+     *
+     * A view compartilha o armazenamento interno do Balloc e não realiza cópia.
+     * O bloco fica protegido contra operações incompatíveis durante o callback.
+     *
+     * O callback deve ser síncrono e não deve reter a referência recebida.
+     *
+     * @param {number} handler - Handler do bloco.
+     * @param {Function} callback - Função que recebe a TypedArray compartilhada.
+     * @returns {*} Retorno produzido pelo callback.
+     * @throws {TypeError} Se callback não for uma função.
+     * @throws {Error} Se o handler for inválido ou já estiver emprestado.
+     */
+    withView(handler, callback) {
+        if (typeof callback !== "function") throw new TypeError("callback must be a function");
+
+        const meta = this.extractMetadata(handler, this.metadata);
+        const flagsAddress = meta.headerAddress + FLAGS_OFFSET;
+        const flags = this.controlBus[flagsAddress];
+
+        if (flags & VIEW_LOCK) throw new Error("Block is already borrowed");
+
+        this.controlBus[flagsAddress] = flags | VIEW_LOCK;
+
+        try {
+            const rawAddress = meta.dataAddress >>> this.wordShift;
+            return callback(this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied));
+        } finally {
+            this.controlBus[flagsAddress] &= ~VIEW_LOCK;
+        }
     }
 
     // ======== CAPACIDADE EM SLOTS ==========
@@ -939,7 +988,7 @@ export default class Balloc {
      * @returns {number} Número de elementos ocupados.
      * @throws {Error} Se o handler for inválido ou estiver corrompido.
      */
-    occupied(handler){
+    occupied(handler) {
         const meta = this.extractMetadata(handler, this.metadata);
         return meta.occupied;
 
@@ -971,9 +1020,9 @@ export default class Balloc {
      * @returns {boolean} `true` se o bloco estiver cheio; caso contrário, `false`.
      * @throws {Error} Se o handler for inválido ou estiver corrompido.
      */
-    isFull(handler){
+    isFull(handler) {
         const meta = this.extractMetadata(handler, this.metadata);
-        return (1 << meta.capacityExponent >>> 0) -  meta.occupied === 0;
+        return (1 << meta.capacityExponent >>> 0) - meta.occupied === 0;
     }
 
     // ==========Operações entre blocos=============
@@ -1001,7 +1050,7 @@ export default class Balloc {
      * @returns {Uint8Array} O `dataBus` após a operação.
      * @throws {Error} Se `source` ou `destination` for inválido ou estiver corrompido.
      */
-    copy(source, destination, slots = UNKNOWN){
+    copy(source, destination, slots = UNKNOWN) {
         /** @type {Metadata} */
         const metaA = {};
         /** @type {Metadata} */
@@ -1009,13 +1058,13 @@ export default class Balloc {
 
         this.extractMetadata(source, metaA);
         this.extractMetadata(destination, metaB);
+        this.assertNotBorrowed(metaB.headerAddress);
 
         const maxSlotsDest = Math.floor(metaB.byteCapacity / this.wordSize);
         const slotsToCopy = Math.min(metaA.occupied, maxSlotsDest, slots);
         const newOccupied = Math.max(metaB.occupied, slotsToCopy);
 
         this.controlAdapter.setUint32(metaB.headerAddress + OCCUPIED_OFFSET, newOccupied, IS_LITTLE_ENDIAN);
-
         return this.dataBus.copyWithin(metaB.dataAddress, metaA.dataAddress, metaA.dataAddress + slotsToCopy * this.wordSize);
     }
 
@@ -1044,8 +1093,9 @@ export default class Balloc {
      */
     copyWithin(handler, target, start, length) {
         const meta = this.extractMetadata(handler, this.metadata);
-        const slots = Math.floor(meta.byteCapacity / this.wordSize);
+        this.assertNotBorrowed(meta.headerAddress);
 
+        const slots = Math.floor(meta.byteCapacity / this.wordSize);
         target = Math.trunc(target);
         start = Math.trunc(start);
         length = Math.trunc(length);
@@ -1053,12 +1103,9 @@ export default class Balloc {
         if (target < 0) target += slots;
         if (start < 0) start += slots;
 
-        // Clampa índices dentro dos limites da capacidade
         target = Math.max(0, Math.min(target, slots));
         start = Math.max(0, Math.min(start, slots));
 
-        // Limita a cópia à capacidade disponível a partir do target 
-        // e aos elementos efetivamente ocupados a partir de start
         const maxRead = Math.max(0, meta.occupied - start);
         const maxWrite = slots - target;
         length = Math.max(0, Math.min(length, maxRead, maxWrite));
@@ -1067,9 +1114,8 @@ export default class Balloc {
 
         const targetAddress = meta.dataAddress + target * this.wordSize;
         const sourceAddress = meta.dataAddress + start * this.wordSize;
-
-        // Atualiza a ocupação caso a cópia expanda o topo ocupado do bloco
         const newOccupied = Math.max(meta.occupied, target + length);
+
         this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, newOccupied, IS_LITTLE_ENDIAN);
 
         return this.dataBus.copyWithin(targetAddress, sourceAddress, sourceAddress + length * this.wordSize);
@@ -1097,6 +1143,7 @@ export default class Balloc {
 
         this.extractMetadata(target, metaTarget);
         this.extractMetadata(source, metaSource);
+        this.assertNotBorrowed(metaTarget.headerAddress);
 
         const available = metaTarget.byteCapacity / this.wordSize - metaTarget.occupied;
         const count = Math.min(available, metaSource.occupied);
@@ -1106,11 +1153,7 @@ export default class Balloc {
         const targetAddress = metaTarget.dataAddress + metaTarget.occupied * this.wordSize;
         const sourceAddress = metaSource.dataAddress;
 
-        if (target === source) {
-            this.dataBus.copyWithin(targetAddress, sourceAddress,  sourceAddress + count * this.wordSize);
-        } else {
-            this.dataBus.copyWithin(targetAddress, sourceAddress, sourceAddress + count * this.wordSize);
-        }
+        this.dataBus.copyWithin(targetAddress, sourceAddress, sourceAddress + count * this.wordSize);
 
         this.controlAdapter.setUint32(metaTarget.headerAddress + OCCUPIED_OFFSET, metaTarget.occupied + count, IS_LITTLE_ENDIAN);
 
@@ -1166,9 +1209,12 @@ export default class Balloc {
         const metaA = {};
         /** @type {Metadata} */
         const metaB = {};
-        
+
         this.extractMetadata(source, metaA);
         this.extractMetadata(target, metaB);
+
+        this.assertNotBorrowed(metaA.headerAddress);
+        this.assertNotBorrowed(metaB.headerAddress);
 
         this.controlAdapter.setUint32(metaA.headerAddress + ADDRESS_OFFSET, metaB.dataAddress, IS_LITTLE_ENDIAN);
         this.controlAdapter.setUint32(metaB.headerAddress + ADDRESS_OFFSET, metaA.dataAddress, IS_LITTLE_ENDIAN);
@@ -1178,7 +1224,7 @@ export default class Balloc {
 
         this.controlAdapter.setUint32(metaA.headerAddress + OCCUPIED_OFFSET, metaB.occupied, IS_LITTLE_ENDIAN);
         this.controlAdapter.setUint32(metaB.headerAddress + OCCUPIED_OFFSET, metaA.occupied, IS_LITTLE_ENDIAN);
-    } 
+    }
 
 
     // ============= SERIALIZAÇÃO ==============
@@ -1284,6 +1330,25 @@ export default class Balloc {
 
     // ============= UTILITÁRIOS ==============
 
+    assertNotBorrowed(headerAddress) {
+        if (this.controlBus[headerAddress + FLAGS_OFFSET] & VIEW_LOCK) {
+            throw new Error("Block is borrowed");
+        }
+    }
+
+    /**
+     * Impede operações que substituem ou remanejam o dataBus
+     * enquanto existir algum segmento emprestado.
+     */
+    assertNoActiveViews() {
+        for (let i = 0; i < this.controlPointer; i += HEADER_SIZE) {
+            if (this.controlBus[i + COOKIE_OFFSET] === 0) continue;
+            if (this.controlBus[i + FLAGS_OFFSET] & VIEW_LOCK) {
+                throw new Error("Cannot remap memory while a block is borrowed");
+            }
+        }
+    }
+
     /**
      * [USO INTERNO]
      * Decodifica os metadados associados a um handler.
@@ -1315,7 +1380,7 @@ export default class Balloc {
         }
 
         out.dataAddress = this.controlAdapter.getUint32(out.headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
-        out.capacityExponent  = this.controlAdapter.getUint8(out.headerAddress + CAPACITY_OFFSET);
+        out.capacityExponent = this.controlAdapter.getUint8(out.headerAddress + CAPACITY_OFFSET);
         out.byteCapacity = (1 << out.capacityExponent >>> 0) * this.wordSize;
         out.occupied = this.controlAdapter.getUint32(out.headerAddress + OCCUPIED_OFFSET, IS_LITTLE_ENDIAN);
 
