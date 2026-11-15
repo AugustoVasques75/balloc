@@ -671,7 +671,7 @@ const count = memory.occupied(handler);
 
 ### `isFull(handler)`
 
-检查数据块是否已完全占用. Returns `true` when the number of occupied elements equals the block's physical capacity; otherwise returns `false`.
+检查数据块是否已完全占用. 当已占用元素数量等于数据块的物理容量时返回 `true`，否则返回 `false`。
 
 
 返回可用物理槽位的总数。
