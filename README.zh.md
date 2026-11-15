@@ -323,6 +323,8 @@ API 方法按功能归为以下类别：
 | API | 说明 |
 |---|---|
 | `has()` | 搜索指定值 |
+| `indexOf()` | 搜索指定值 (first match) |
+| `lastIndexOf()` | 搜索指定值 (last match) |
 | `get()` | 读取元素 |
 | `set()` | 写入元素 |
 | `clear()` | 清除占用状态并填充数据块 |
@@ -330,6 +332,7 @@ API 方法按功能归为以下类别：
 | `fillAll()` | 填充整个数据块并将其全部标记为已占用 |
 | `put()` | 将数组复制到数据块 |
 | `pick()` | 将已占用的元素复制出数据块 |
+| `withView()` | Borrow a typed view over occupied elements |
 
 ### 数据块间交换
 
@@ -355,11 +358,31 @@ API 方法按功能归为以下类别：
 | `byteSize()` | 返回数据块的物理大小，单位为字节 |
 | `occupied()` | 返回已占用的元素数量 |
 | `length()` | 返回物理容量（元素数量） |
+| `isFull()` | 检查数据块是否已完全占用 |
 | `recycleCount()` | 返回可回收区域的数量 |
 | `recycleBytes` | 当前可回收的字节数 |
 | `allocatedBytes` | 已分配给非回收区域的字节数 |
 | `unallocatedBytes` | bump 指针之后的剩余空间 |
 | `fragmentationRatio` | 可回收字节数／已使用堆区域 |
+
+### 使用 `withView()` 借用内存
+
+`withView(handler, callback)` 会向回调函数提供一个直接映射到数据块已占用区域的 `TypedArray`。该视图不是副本：通过它进行的修改会直接改变数据块内容。回调同步执行，只接收该视图作为唯一参数；回调的返回值会由 `withView()` 原样返回。
+
+回调结束后，不得保留或继续使用该视图。如果回调返回 Promise，借用会在 Promise 被返回时立即结束，不会等待 Promise 完成。即使回调抛出异常，锁也会被释放。
+
+数据块处于借用状态时，所有直接修改该数据块的操作都会被阻止，包括 `push()`、`pop()`、`nudge()`、`pull()`、`set()`、`clear()`、`fill()`、`fillAll()`、`put()`、`realloc()`、`free()`，以及将该数据块作为目标的复制操作。如果任一数据块处于借用状态，`swap()` 也会被阻止。读取操作以及仅将该数据块用作源的操作仍可执行。
+
+只要存在活动视图，就会阻止替换或重新映射 `dataBus` 的操作，例如 `gc()`，以及由 `alloc()` 或 `realloc()` 触发的总线扩容。
+
+示例：
+
+```js
+const result = memory.withView(handler, view => {
+    view[0] = 42;
+    return view.length;
+});
+```
 
 ### 内部函数
 
