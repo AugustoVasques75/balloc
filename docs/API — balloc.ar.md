@@ -783,7 +783,7 @@ const count = memory.occupied(handler);
 
 ### `isFull(handler)`
 
-التحقق مما إذا كانت الكتلة مشغولة بالكامل. Returns `true` when the number of occupied elements equals the block's physical capacity; otherwise returns `false`.
+التحقق مما إذا كانت الكتلة مشغولة بالكامل. تعيد `true` عندما يساوي عدد العناصر المشغولة السعة الفيزيائية للكتلة؛ وإلا فتعيد `false`.
 
 
 يرجع الكمية الإجمالية للفتحات الفيزيائية المتاحة.
