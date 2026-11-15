@@ -622,7 +622,7 @@ const count = memory.occupied(handler);
 
 ### `isFull(handler)`
 
-ブロックが完全に使用中か確認する. Returns `true` when the number of occupied elements equals the block's physical capacity; otherwise returns `false`.
+ブロックが完全に使用中か確認する. 使用中の要素数がブロックの物理容量と等しい場合は `true`、それ以外の場合は `false` を返します。
 
 
 使用可能な物理スロットの総数を返します。
