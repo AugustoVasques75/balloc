@@ -324,8 +324,8 @@ A continuación, un resumen de estos grupos:
 | API | Descripción |
 | --- | --- |
 | `has()` | Buscar un valor |
-| `indexOf()` | Buscar un valor (first match) |
-| `lastIndexOf()` | Buscar un valor (last match) |
+| `indexOf()` | Buscar la primera aparición de un valor |
+| `lastIndexOf()` | Buscar la última aparición de un valor |
 | `get()` | Leer un elemento |
 | `set()` | Escribir un elemento |
 | `clear()` | Limpiar la ocupación y resetear el bloque |
