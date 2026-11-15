@@ -720,6 +720,21 @@ var Balloc = class {
     const meta = this.extractMetadata(handler, this.metadata);
     return 1 << meta.capacityExponent >>> 0;
   }
+  /**
+   * 检查内存块是否已达到其分配容量。
+   *
+   * 当已占用元素的数量等于其分配的总容量时，
+   * 该内存块被视为已满，此时没有剩余空间
+   * 可以存储其他元素。
+   *
+   * @param {number} handler - 块的句柄。
+   * @returns {boolean} 如果块已满则返回 `true`，否则返回 `false`。
+   * @throws {Error} 如果句柄无效或已损坏。
+   */
+  isFull(handler) {
+    const meta = this.extractMetadata(handler, this.metadata);
+    return (1 << meta.capacityExponent >>> 0) - meta.occupied === 0;
+  }
   // ========== 块间操作 (Inter-block Operations) =============
   /**
    * 将占用的元素从一个块复制到另一个块。

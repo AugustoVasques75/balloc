@@ -468,6 +468,18 @@ export default class Balloc {
      */
     length(handler: number): number;
     /**
+     * メモリブロックが割り当て容量に達しているかどうかを確認します。
+     *
+     * 使用中の要素数が割り当てられた総容量と等しく、
+     * 追加の要素を格納するための空き領域が残っていない場合、
+     * ブロックは満杯とみなされます。
+     *
+     * @param {number} handler - ブロックのハンドラー。
+     * @returns {boolean} ブロックが満杯の場合は `true`、それ以外は `false`。
+     * @throws {Error} ハンドラーが無効または破損している場合。
+     */
+    isFull(handler: number): boolean;
+    /**
      * あるブロックから別のブロックへ占有要素をコピーします。
      *
      * コピーは`source`の最初の要素と`destiny`の最初のスロットから開始されます。

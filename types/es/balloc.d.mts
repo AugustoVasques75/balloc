@@ -494,6 +494,18 @@ export default class Balloc {
      */
     length(handler: number): number;
     /**
+     * Comprueba si el bloque de memoria ha alcanzado su capacidad de asignación.
+     *
+     * Un bloque se considera lleno cuando la cantidad de elementos ocupados
+     * es igual a su capacidad total asignada, sin que queden posiciones disponibles
+     * para almacenar elementos adicionales.
+     *
+     * @param {number} handler - Identificador del bloque.
+     * @returns {boolean} `true` si el bloque está lleno; de lo contrario, `false`.
+     * @throws {Error} Si el identificador del bloque no es válido o está corrupto.
+     */
+    isFull(handler: number): boolean;
+    /**
      * Copia elementos ocupados de un bloque a otro.
      *
      * La copia comienza en el primer elemento de `source` y la primera ranura de

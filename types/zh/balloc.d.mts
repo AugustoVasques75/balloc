@@ -436,6 +436,18 @@ export default class Balloc {
      */
     length(handler: number): number;
     /**
+     * 检查内存块是否已达到其分配容量。
+     *
+     * 当已占用元素的数量等于其分配的总容量时，
+     * 该内存块被视为已满，此时没有剩余空间
+     * 可以存储其他元素。
+     *
+     * @param {number} handler - 块的句柄。
+     * @returns {boolean} 如果块已满则返回 `true`，否则返回 `false`。
+     * @throws {Error} 如果句柄无效或已损坏。
+     */
+    isFull(handler: number): boolean;
+    /**
      * 将占用的元素从一个块复制到另一个块。
      *
      * 复制从 `source` 的第一个元素和 `destiny` 的第一个槽位开始。

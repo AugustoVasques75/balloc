@@ -960,6 +960,22 @@ export default class Balloc {
         return 1 << meta.capacityExponent >>> 0;
     }
 
+    /**
+     * Verifica se o bloco de memória atingiu sua capacidade de alocação.
+     *
+     * Um bloco é considerado cheio quando a quantidade de elementos ocupados
+     * é igual à sua capacidade total alocada, não restando posições disponíveis
+     * para armazenar novos elementos.
+     *
+     * @param {number} handler - Handler do bloco.
+     * @returns {boolean} `true` se o bloco estiver cheio; caso contrário, `false`.
+     * @throws {Error} Se o handler for inválido ou estiver corrompido.
+     */
+    isFull(handler){
+        const meta = this.extractMetadata(handler, this.metadata);
+        return (1 << meta.capacityExponent >>> 0) -  meta.occupied === 0;
+    }
+
     // ==========Operações entre blocos=============
 
     /**

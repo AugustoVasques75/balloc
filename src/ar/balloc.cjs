@@ -761,6 +761,21 @@ var Balloc = class {
     const meta = this.extractMetadata(handler, this.metadata);
     return 1 << meta.capacityExponent >>> 0;
   }
+  /**
+   * يتحقق مما إذا كانت كتلة الذاكرة قد بلغت سعتها المخصصة.
+   *
+   * تُعتبر الكتلة ممتلئة عندما يكون عدد العناصر المشغولة مساويًا
+   * لسعتها الإجمالية المخصصة، بحيث لا تبقى أي مواضع متاحة
+   * لتخزين عناصر إضافية.
+   *
+   * @param {number} handler - معرّف الكتلة.
+   * @returns {boolean} `true` إذا كانت الكتلة ممتلئة؛ وإلا `false`.
+   * @throws {Error} إذا كان معرّف الكتلة غير صالح أو تالفًا.
+   */
+  isFull(handler) {
+    const meta = this.extractMetadata(handler, this.metadata);
+    return (1 << meta.capacityExponent >>> 0) - meta.occupied === 0;
+  }
   // ========== Inter-block Operations =============
   /**
    * ينسخ العناصر المشغولة من كتلة إلى أخرى.

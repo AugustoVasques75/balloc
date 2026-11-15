@@ -485,6 +485,18 @@ export default class Balloc {
      */
     length(handler: number): number;
     /**
+     * Determines whether the memory block has reached its allocation capacity.
+     *
+     * A block is considered full when the number of occupied elements equals
+     * its total allocated capacity, leaving no available positions for additional
+     * elements.
+     *
+     * @param {number} handler - Block handler.
+     * @returns {boolean} `true` if the block is full; otherwise, `false`.
+     * @throws {Error} If the handler is invalid or corrupted.
+     */
+    isFull(handler: number): boolean;
+    /**
      * Copies occupied elements from one block to another.
      *
      * Copying begins at the first element of `source` and the first slot of

@@ -958,6 +958,22 @@ export default class Balloc {
         return 1 << meta.capacityExponent >>> 0;
     }
 
+    /**
+     * Comprueba si el bloque de memoria ha alcanzado su capacidad de asignación.
+     *
+     * Un bloque se considera lleno cuando la cantidad de elementos ocupados
+     * es igual a su capacidad total asignada, sin que queden posiciones disponibles
+     * para almacenar elementos adicionales.
+     *
+     * @param {number} handler - Identificador del bloque.
+     * @returns {boolean} `true` si el bloque está lleno; de lo contrario, `false`.
+     * @throws {Error} Si el identificador del bloque no es válido o está corrupto.
+     */
+    isFull(handler){
+        const meta = this.extractMetadata(handler, this.metadata);
+        return (1 << meta.capacityExponent >>> 0) -  meta.occupied === 0;
+    }
+
     // ========== Operaciones entre bloques=============
 
     /**

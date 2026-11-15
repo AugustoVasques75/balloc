@@ -769,6 +769,21 @@ var Balloc = class {
     const meta = this.extractMetadata(handler, this.metadata);
     return 1 << meta.capacityExponent >>> 0;
   }
+  /**
+   * Determines whether the memory block has reached its allocation capacity.
+   *
+   * A block is considered full when the number of occupied elements equals
+   * its total allocated capacity, leaving no available positions for additional
+   * elements.
+   *
+   * @param {number} handler - Block handler.
+   * @returns {boolean} `true` if the block is full; otherwise, `false`.
+   * @throws {Error} If the handler is invalid or corrupted.
+   */
+  isFull(handler) {
+    const meta = this.extractMetadata(handler, this.metadata);
+    return (1 << meta.capacityExponent >>> 0) - meta.occupied === 0;
+  }
   // ========== Inter-block Operations =============
   /**
    * Copies occupied elements from one block to another.
