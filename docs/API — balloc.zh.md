@@ -111,6 +111,29 @@ byteSize(handler)  → 实际预留的物理字节数
 
 ---
 
+## 使用 `withView()` 借用内存
+
+`withView(handler, callback)` 会向回调函数传递一个直接映射到数据块已占用数据区域的类型化视图。该视图仅包含已占用的元素，不包含未使用的容量，并且不是副本：通过视图进行的修改会立即反映到数据块内容中。
+
+借用过程是同步的。回调函数只接收该视图作为参数，`withView()` 会返回回调函数的返回值。锁在 `finally` 块中释放，即使回调函数抛出异常也不例外。
+
+```js
+const result = memory.withView(handler, view => {
+    view[0] = 42;
+    return view.length;
+});
+```
+
+回调结束后，不得保留或继续使用该视图。如果回调返回 Promise，借用会在 Promise 返回时立即结束，不会等到 Promise 完成。
+
+### 借用期间的限制
+
+对同一 handler 再次调用 `withView()` 会抛出 `Error`。如果以下操作会修改被借用的数据块，也会抛出 `Error`：`push()`、`pop()`、`nudge()`、`pull()`、`set()`、`clear()`、`fill()`、`fillAll()`、`put()`、`realloc()`、`free()` 和 `copyWithin()`。当被借用的数据块是目标块时，`copy()` 和 `append()` 会被阻止。如果任一数据块处于借用状态，`swap()` 也会被阻止。
+
+读取操作不受阻止。在 `copy()` 和 `append()` 中，源数据块可以处于借用状态，因为这些操作不会修改源数据块。
+
+只要存在活动视图，就会阻止替换或重新映射 `dataBus` 的操作，包括 `gc()` 以及由 `alloc()` 或 `realloc()` 触发的 `dataBus` 扩容。
+
 # 1. 实例化
 
 ## `new Balloc(size, bucketSize, metadataSize)`
@@ -454,6 +477,14 @@ boolean
 
 ---
 
+## `indexOf(handler, searchElement, fromIndex = 0)`
+
+查找值首次出现的位置. The search proceeds in ascending index order and considers only occupied elements, ignoring unused block capacity.
+
+## `lastIndexOf(handler, searchElement, fromIndex = -1)`
+
+查找值最后一次出现的位置. The search proceeds in descending index order and considers only occupied elements, ignoring unused block capacity.
+
 ## `get(handler, index)`
 
 获取指定索引处的元素。
@@ -637,6 +668,11 @@ const count = memory.occupied(handler);
 ---
 
 ## `length(handler)`
+
+### `isFull(handler)`
+
+检查数据块是否已完全占用. Returns `true` when the number of occupied elements equals the block's physical capacity; otherwise returns `false`.
+
 
 返回可用物理槽位的总数。
 
