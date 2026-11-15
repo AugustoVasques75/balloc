@@ -126,6 +126,29 @@ byteSize(handler)  → reserved physical bytes
 
 ---
 
+## Memory borrowing with `withView()`
+
+`withView(handler, callback)` passes the callback a typed view directly over the block's occupied data region. The view covers only occupied elements, excludes unused capacity, and is not a copy: changes made through it immediately modify the block's contents.
+
+The borrow is synchronous. The callback receives the view as its only argument, and its return value is propagated by `withView()`. The lock is released in a `finally` block, including when the callback throws.
+
+```js
+const result = memory.withView(handler, view => {
+    view[0] = 42;
+    return view.length;
+});
+```
+
+Do not retain or use the view after the callback finishes. If the callback returns a Promise, the borrow ends as soon as the Promise is returned; it is not held until the Promise settles.
+
+### Restrictions during a borrow
+
+A second `withView()` call for the same handler throws `Error`. The following operations also throw `Error` when they would modify the borrowed block: `push()`, `pop()`, `nudge()`, `pull()`, `set()`, `clear()`, `fill()`, `fillAll()`, `put()`, `realloc()`, `free()`, and `copyWithin()`. `copy()` and `append()` are blocked when the borrowed block is the destination. `swap()` is blocked when either block is borrowed.
+
+Read operations are not blocked. In `copy()` and `append()`, the source block may be borrowed because these operations do not modify it.
+
+Operations that replace or remap `dataBus` are also blocked while any view is active. This includes `gc()` and `dataBus` growth triggered by `alloc()` or `realloc()`.
+
 # 1. Instantiation
 
 ## `new Balloc(size, bucketSize, metadataSize)`
@@ -491,6 +514,14 @@ boolean
 
 ---
 
+## `indexOf(handler, searchElement, fromIndex = 0)`
+
+Finds the first occurrence of a value, searching in ascending index order. Only occupied elements are searched; unused block capacity is ignored.
+
+## `lastIndexOf(handler, searchElement, fromIndex = -1)`
+
+Finds the last occurrence of a value, searching in descending index order. Only occupied elements are searched; unused block capacity is ignored.
+
 ## `get(handler, index)`
 
 Gets the element at the specified index.
@@ -691,6 +722,11 @@ const count = memory.occupied(handler);
 ---
 
 ## `length(handler)`
+
+### `isFull(handler)`
+
+Returns `true` when the number of occupied elements equals the block's physical capacity; otherwise returns `false`.
+
 
 Returns the total quantity of available physical slots.
 
