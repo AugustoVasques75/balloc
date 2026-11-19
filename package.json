@@ -24,7 +24,7 @@
     "README.pt.md",
     "README.jp.md",
     "README.zh.md",
-    "change.log.md"
+    "CHANGELOG.md"
   ],
   "exports": {
     ".": {
