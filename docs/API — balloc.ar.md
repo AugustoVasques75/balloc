@@ -15,77 +15,73 @@
 
 ```text
 Balloc
-├── Instanciamento
+├── التهيئة
 │   └── constructor()
 │
-├── Ciclo de vida dos blocos
+├── دورة حياة الكتل
 │   ├── alloc()
 │   ├── realloc()
 │   ├── shrink()
 │   ├── free()
 │   └── gc()
 │
-├── Estruturas lineares
+├── الهياكل الخطية
 │   ├── Stack
 │   │   ├── push()
 │   │   ├── pop()
 │   │   └── peek()
-│   │
 │   └── Queue
 │       ├── nudge()
 │       ├── pull()
 │       └── head()
 │
-├── Acesso ao conteúdo
+├── الوصول إلى المحتوى
 │   ├── has()
-│   ├── indexOf()
-│   ├── lastIndexOf()
 │   ├── get()
 │   ├── set()
 │   ├── clear()
 │   ├── fill()
 │   ├── fillAll()
 │   ├── put()
-│   └── pick()
+│   ├── pick()
+│   ├── indexOf()
+│   ├── lastIndexOf()
 │   └── withView()
 │
-├── Capacidade e ocupação
+├── السعة والإشغال
 │   ├── byteSize()
 │   ├── occupied()
-│   └── length()
+│   ├── length()
 │   └── isFull()
 │
-├── Operações entre blocos
+├── العمليات بين الكتل
 │   ├── copy()
 │   ├── copyWithin()
 │   ├── append()
-│   └── clone()
+│   ├── clone()
 │   └── swap()
 │
-├── Serialização
+├── التسلسل
 │   ├── dump()
 │   └── load()
 │
-├── Diagnóstico e utilização
+├── التشخيص والاستخدام
 │   ├── recycleCount()
 │   ├── recycleBytes
 │   ├── allocatedBytes
 │   ├── unallocatedBytes
 │   └── fragmentationRatio
 │
-└── Uso interno
-    ├── Reciclagem
+└── الاستخدام الداخلي
+    ├── إعادة التدوير
     │   ├── recyclePush()
     │   └── recyclePop()
-    │
-    ├── Escalonamento
+    ├── التوسعة
     │   ├── grow()
     │   └── headerGrow()
-    │
-    └── Utilitários
+    └── الأدوات
         ├── extractMetadata()
         └── bakeCookie()
-
 ```
 
 ---
