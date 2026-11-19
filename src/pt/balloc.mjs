@@ -318,6 +318,32 @@ export default class Balloc {
      * @throws {Error} Se o handler for inválido, estiver corrompido ou estiver
      * emprestado por withView().
      */
+    shrink(handler) {
+        const meta = this.extractMetadata(handler, this.metadata);
+        this.assertNotBorrowed(meta.headerAddress);
+
+        const newCapacity = Math.max(1, 32 - Math.clz32(Math.max(2, meta.occupied) - 1));
+        if (newCapacity >= meta.capacityExponent) return;
+
+        const oldBlockSize = meta.byteCapacity;
+        const newBlockSize = (2 ** newCapacity) * this.wordSize;
+        const oldEnd = meta.dataAddress + oldBlockSize;
+
+        this.controlAdapter.setUint8(meta.headerAddress + CAPACITY_OFFSET, newCapacity);
+
+        if (oldEnd === this.dataPointer) {
+            this.dataPointer = meta.dataAddress + newBlockSize;
+            return;
+        }
+
+        let address = meta.dataAddress + newBlockSize;
+        for (let exponent = newCapacity; exponent < meta.capacityExponent; exponent++) {
+            const segmentSize = (2 ** exponent) * this.wordSize;
+            this.recyclePush(segmentSize, address);
+            address += segmentSize;
+        }
+    }
+
     free(handler) {
 
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
