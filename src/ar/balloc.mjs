@@ -518,7 +518,6 @@ export default class Balloc {
      * مشغول. يتم زيادة إشغال الكتلة فقط عندما تكون هناك مساحة
      * متاحة ضمن سعتها.
      *
-     * @param {number} handler - مقبض الكتلة.
      * @param {number} value - القيمة المراد إدراجها.
      * @returns {boolean} `true` إذا تم إدراج القيمة؛ `false` إذا كانت الكتلة
      * بلا مساحة متاحة.
@@ -939,10 +938,10 @@ export default class Balloc {
      * على العروض الفرعية (Subviews) المشتقة من العرض الأصلي.
      *
      * @param {number} handler - مقبض الكتلة.
-     * @param {Function} callback - الدالة التي تتلقى TypedArray المشترك.
+     * @param {...(number|Function)} args - مقبض كتلة واحد أو أكثر، تليها دالة رد الاتصال.
      * @returns {*} القيمة المُرجعة بواسطة دالة رد الاتصال.
-     * @throws {TypeError} إذا لم تكن دالة رد الاتصال دالة.
-     * @throws {Error} إذا كان المقبض غير صالح أو معاراً مسبقاً.
+     * @throws {TypeError} إذا لم يتم توفير أي مقبض أو لم تكن دالة رد الاتصال دالة.
+     * @throws {Error} إذا كان أي مقبض غير صالح أو مكرراً أو معاراً مسبقاً.
      */
     withView(...args) {
         if (args.length < 2) throw new TypeError("At least one handler and one callback are required");
@@ -960,13 +959,12 @@ export default class Balloc {
 
         if (flags.some(flag => flag & VIEW_LOCK)) throw new Error("Block is already borrowed");
 
-        const acquired = [];
+        let acquiredCount = 0;
 
         try {
             for (const header of headers) {
-                const address = header + FLAGS_OFFSET;
-                this.controlBus[address] |= VIEW_LOCK;
-                acquired.push(address);
+                this.controlBus[header + FLAGS_OFFSET] |= VIEW_LOCK;
+                acquiredCount++;
             }
 
             const views = metadata.map(meta => {
@@ -976,7 +974,9 @@ export default class Balloc {
 
             return callback(...views);
         } finally {
-            for (const address of acquired) this.controlBus[address] &= ~VIEW_LOCK;
+            for (let i = 0; i < acquiredCount; i++) {
+                this.controlBus[headers[i] + FLAGS_OFFSET] &= ~VIEW_LOCK;
+            }
         }
     }
 
