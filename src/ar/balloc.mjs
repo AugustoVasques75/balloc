@@ -303,56 +303,17 @@ export default class Balloc {
     }
 
     /**
-     * Reduces a block to the smallest power-of-two capacity that can contain
-     * its occupied elements, while preserving its address and handler.
+     * يقلّص الكتلة إلى أصغر سعة تمثل قوة للعدد اثنين وتكفي لاحتواء
+     * العناصر المشغولة فيها، مع الحفاظ على عنوانها ومعرّفها (handler).
      *
-     * If the block is at the top of the dataBus, dataPointer is moved backward.
-     * Otherwise, the released tail is split into power-of-two regions and each
-     * region is returned to the recycling list.
+     * إذا كانت الكتلة في أعلى dataBus، يُرجع dataPointer إلى الخلف.
+     * وإلا، يُقسّم الجزء الطرفي المُحرر إلى مناطق ذات أحجام تمثل قوى للعدد
+     * اثنين، ثم تُعاد كل منطقة إلى قائمة إعادة التدوير.
      *
-     * @param {number} handler - Handler of the block to shrink.
+     * @param {number} handler - معرّف الكتلة المراد تقليصها.
      * @returns {void}
-     * @throws {Error} If the handler is invalid, corrupted, or borrowed by withView().
+     * @throws {Error} إذا كان المعرّف غير صالح أو تالفاً أو مستعاراً عبر withView().
      */
-    shrink(handler) {
-        const meta = this.extractMetadata(handler, this.metadata);
-        this.assertNotBorrowed(meta.headerAddress);
-
-        const newCapacity = Math.max(1, 32 - Math.clz32(Math.max(2, meta.occupied) - 1));
-        if (newCapacity >= meta.capacityExponent) return;
-
-        const oldBlockSize = meta.byteCapacity;
-        const newBlockSize = (2 ** newCapacity) * this.wordSize;
-        const oldEnd = meta.dataAddress + oldBlockSize;
-
-        this.controlAdapter.setUint8(meta.headerAddress + CAPACITY_OFFSET, newCapacity);
-
-        if (oldEnd === this.dataPointer) {
-            this.dataPointer = meta.dataAddress + newBlockSize;
-            return;
-        }
-
-        let address = meta.dataAddress + newBlockSize;
-        for (let exponent = newCapacity; exponent < meta.capacityExponent; exponent++) {
-            const segmentSize = (2 ** exponent) * this.wordSize;
-            this.recyclePush(segmentSize, address);
-            address += segmentSize;
-        }
-    }
-
-    /**
-    * يحرر كتلة ذاكرة.
-    *
-    * يتم إبطال ترويسة الكتلة عن طريق تصفير ملف تعريف الارتباط الخاص بها وتسجيل
-    * عنوانها لإعادة استخدامها لاحقاً. كما يتم إرجاع منطقة البيانات
-    * إلى نظام إعادة التدوير، إلا إذا كانت الكتلة في قمة `dataBus` تماماً؛
-    * في هذه الحالة، يتم التراجع عن `dataPointer` ببساطة، مما يلغي المنطقة دون إنشاء إدخال في قائمة إعادة التدوير.
-    *
-    * @param {number} handler - مقبض الكتلة المراد تحريرها.
-    * @returns {void}
-    * @throws {Error} إذا كان المقبض غير صالح، أو تالفاً، أو إذا كانت الكتلة
-    * معارة بواسطة withView().
-    */
     free(handler) {
 
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
