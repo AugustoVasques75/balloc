@@ -332,9 +332,6 @@ The following is a summary of these groups:
 | `free()` | Free a block |
 | `gc()` | Compact the data heap |
 
-### `shrink(handler)`
-
-Reduces a block's physical capacity to the smallest power of two that can contain its occupied elements, with a minimum capacity of two elements. The block's handler and data address remain unchanged. If the block is at the top of `dataBus`, the allocator moves `dataPointer` backward; otherwise, the released tail is split into power-of-two regions and returned to the recycling system. If the current capacity is already sufficient, the operation does nothing. The block being shrunk must not be borrowed through `withView()`.
 
 ### Stack operations
 
@@ -399,34 +396,6 @@ Reduces a block's physical capacity to the smallest power of two that can contai
 | `unallocatedBytes` | Space remaining after the bump pointer |
 | `fragmentationRatio` | Recycled bytes / used heap area |
 
-### Borrowing memory with `withView()`
-
-`withView(...handlers, callback)` borrows one or more blocks and passes their occupied regions to the callback as `TypedArray` views, in the same order as the supplied handlers. The views directly reference Balloc's storage; they are not copies, so changes made through them modify the corresponding blocks. The callback is synchronous, and its return value is propagated by `withView()`.
-
-The views must not be retained or used after the callback finishes. If the callback returns a Promise, the borrow is released immediately when that Promise is returned; it is not held until the Promise settles. All acquired locks are released if the callback throws. The call rejects invalid or duplicated handlers and blocks that are already borrowed.
-
-While a block is borrowed, operations that directly modify it are blocked, including `push()`, `pop()`, `nudge()`, `pull()`, `set()`, `clear()`, `fill()`, `fillAll()`, `put()`, `realloc()`, `shrink()`, `free()`, and copy operations that use it as the destination. `swap()` is also blocked if either block is borrowed. Read operations and operations that use the block only as a source remain allowed.
-
-Operations that replace or remap `dataBus`, such as `gc()` and bus growth triggered by `alloc()` or `realloc()`, are blocked while any view is active.
-
-Example with one block:
-
-```js
-const result = memory.withView(handler, view => {
-    view[0] = 42;
-    return view.length;
-});
-```
-
-Example with multiple blocks:
-
-```js
-const result = memory.withView(first, second, (firstView, secondView) => {
-    firstView[0] = 42;
-    secondView[0] = 84;
-    return firstView[0] + secondView[0];
-});
-```
 
 ### Internal functions
 
