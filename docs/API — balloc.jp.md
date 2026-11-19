@@ -1,12 +1,12 @@
 このドキュメントの他の言語版もご利用いただけます：
 | 言語 | リンク |
 |---|---|
-| アラビア語 | [API — balloc.ar.md](./docs/API%20—%20balloc.ar.md) |
-| 中国語 | [API — balloc.zh.md](./docs/API%20—%20balloc.zh.md) |
-| スペイン語 | [API — balloc.es.md](./docs/API%20—%20balloc.es.md) |
-| 英語 | [API — balloc.en.md](./docs/API%20—%20balloc.en.md) |
-| 日本語 | [API — balloc.jp.md](./docs/API%20—%20balloc.jp.md) |
-| ポルトガル語 | [API — balloc.pt.md](./docs/API%20—%20balloc.pt.md) |
+| アラビア語 | [API — balloc.ar.md](./API%20—%20balloc.ar.md) |
+| 中国語 | [API — balloc.zh.md](./API%20—%20balloc.zh.md) |
+| スペイン語 | [API — balloc.es.md](./API%20—%20balloc.es.md) |
+| 英語 | [API — balloc.en.md](./API%20—%20balloc.en.md) |
+| 日本語 | [API — balloc.jp.md](./API%20—%20balloc.jp.md) |
+| ポルトガル語 | [API — balloc.pt.md](./API%20—%20balloc.pt.md) |
 
 # Balloc.js
 
@@ -26,6 +26,7 @@ Balloc
 ├── ブロックのライフサイクル
 │   ├── alloc()
 │   ├── realloc()
+│   ├── shrink()
 │   ├── free()
 │   └── gc()
 ├── 線形データ構造
@@ -33,11 +34,15 @@ Balloc
 │   └── Queue: nudge(), pull(), head()
 ├── コンテンツへのアクセス
 │   ├── has(), get(), set(), clear()
+│   ├── indexOf()
+│   ├── lastIndexOf()
 │   ├── fill(), fillAll(), put(), pick()
+│   └── withView()
 ├── 容量と使用量
 │   ├── byteSize()
 │   ├── occupied()
 │   └── length()
+│   └── isFull()
 ├── ブロック間の操作
 │   ├── copy(), copyWithin(), append()
 │   └── clone(), swap()
@@ -90,28 +95,44 @@ byteSize(handler)  → 予約済みの物理バイト数
 
 ---
 
-## `withView()` によるメモリの借用
+## メモリの借用
 
-`withView(handler, callback)` は、ブロックの使用中データ領域に直接対応する型付きビューをコールバックに渡します。このビューには使用中の要素のみが含まれ、未使用の容量は含まれません。また、コピーではないため、ビューを通じた変更はブロックの内容に直ちに反映されます。
+Balloc は、1 つまたは複数のブロックの使用中データに対して、コピーを伴わない直接アクセスを提供します。コールバックには内部ストレージを参照する型付き配列ビューが渡され、コピーを割り当てずに読み書きできます。
 
-借用は同期的に行われます。コールバックはビューのみを引数として受け取り、その戻り値は `withView()` から返されます。コールバックが例外を送出した場合も含め、ロックは `finally` ブロックで解除されます。
+借用は同期コールバックの実行中に限定されます。実行中、Balloc はビューを無効化したりブロック構造を変更したりする操作をロックします。例外が発生した場合も `finally` でロックが解除されます。
+
+### 単一ブロック
+
+handler の後にコールバックを渡します。コールバックには未使用容量を除く使用中要素のビューが渡されます。
 
 ```js
-const result = memory.withView(handler, view => {
+const count = memory.withView(handler, view => {
     view[0] = 42;
     return view.length;
 });
 ```
 
-コールバックの終了後にビューを保持したり使用したりしてはいけません。コールバックがPromiseを返した場合、借用はPromiseが返された時点で終了し、Promiseの解決までは継続しません。
+ビューへの書き込みは直ちにブロックへ反映され、コールバックの戻り値が `withView()` から返されます。
 
-### 借用中の制限
+### 複数ブロック
 
-同じhandlerに対して `withView()` を再度呼び出すと `Error` が送出されます。また、借用中のブロックを変更する次の操作も `Error` を送出します：`push()`、`pop()`、`nudge()`、`pull()`、`set()`、`clear()`、`fill()`、`fillAll()`、`put()`、`realloc()`、`free()`、`copyWithin()`。借用中のブロックがコピー先となる場合、`copy()` と `append()` も禁止されます。いずれかのブロックが借用中の場合、`swap()` も禁止されます。
+コールバックの前に 2 つ以上の handler を渡します。handler と同じ順序で各ビューが渡されます。
 
-読み取り操作は禁止されません。`copy()` と `append()` ではコピー元を変更しないため、コピー元ブロックの借用は許可されます。
+```js
+memory.withView(source, target, (sourceView, targetView) => {
+    targetView.set(sourceView.subarray(0, targetView.length));
+});
+```
 
-アクティブなビューが存在する間は、`gc()` や `alloc()`／`realloc()` による `dataBus` の拡張を含め、`dataBus` を置き換えたり再マッピングしたりする操作も禁止されます。
+各 handler は有効で、互いに異なり、借用中であってはなりません。コールバック実行前にすべてロックされ、終了時に解除されます。
+
+### 借用時の制約
+
+コールバック終了後、ビューまたは派生したサブビューを保持、返却、使用してはいけません。Promise が返された場合、借用はその時点で終了するため、ビューへのアクセスは同期的に完了させる必要があります。
+
+借用中のブロックを変更する `push()`、`pop()`、`nudge()`、`pull()`、`set()`、`clear()`、`fill()`、`fillAll()`、`put()`、`realloc()`、`shrink()`、`free()`、`copyWithin()` は `Error` で拒否されます。借用中のブロックがコピー先なら `copy()` と `append()` も拒否され、いずれかが借用中なら `swap()` も拒否されます。読み取り操作は可能で、`copy()` と `append()` のコピー元の借用は許可されます。
+
+アクティブなビューがある間、`gc()` や `alloc()`／`realloc()` による拡張を含め、`dataBus` の置換や再マッピングは拒否されます。
 
 # 1. インスタンス化
 
@@ -256,6 +277,30 @@ memory.realloc(handler);
 ```
 
 この操作は物理容量を 2 倍にし、次の 2 の累乗へ拡張します。
+
+---
+
+## `shrink(handler)`
+
+ブロックの物理容量を、使用中の要素を格納できる最小のサポート対象 2 の累乗に縮小します。最小容量は 2 要素です。現在の容量で十分な場合は何もしません。
+
+データのアドレスは変わらず、header が保持されるため handler も有効です。header の容量フィールドのみが変更されます。ブロックが `dataBus` の末尾にある場合、`dataPointer` が後退し、領域はヒープに返されます。それ以外の場合、解放領域は 2 の累乗サイズに分割され、再利用リストに追加されます。
+
+`shrink()` は使用量を変更せず、要素も移動しません。
+
+### パラメーター
+
+| パラメーター | 型 | 説明 |
+|---|---|---|
+| `handler` | `number` | ブロックの handler。 |
+
+### 戻り値
+
+`void`
+
+### 例外
+
+`Error` — handler が無効または破損している場合、または `withView()` によってブロックが借用中の場合。
 
 ---
 
@@ -446,11 +491,17 @@ boolean
 
 ## `indexOf(handler, searchElement, fromIndex = 0)`
 
-値が最初に現れる位置を検索する. The search proceeds in ascending index order and considers only occupied elements, ignoring unused block capacity.
+インデックスの昇順で値の最初の出現位置を検索します。使用中の要素のみを対象とし、未使用容量は検索しません。
 
 ## `lastIndexOf(handler, searchElement, fromIndex = -1)`
 
-値が最後に現れる位置を検索する. The search proceeds in descending index order and considers only occupied elements, ignoring unused block capacity.
+インデックスの降順で値の最後の出現位置を検索します。使用中の要素のみを対象とし、未使用容量は検索しません。
+
+## `withView(...args)`
+
+同期コールバックの実行中、1 つ以上のブロックを借用します。handler の後にコールバックを渡すと、同じ順序でビューが渡されます。`...args` は `number[] + callback` です。戻り値はコールバックの戻り値です。handler がない場合や最後の引数が関数でない場合は `TypeError`、handler が無効・重複・借用中の場合は `Error` が送出されます。
+
+---
 
 ## `get(handler, index)`
 
@@ -620,7 +671,7 @@ const count = memory.occupied(handler);
 
 ## `length(handler)`
 
-### `isFull(handler)`
+## `isFull(handler)`
 
 ブロックが完全に使用中か確認する. 使用中の要素数がブロックの物理容量と等しい場合は `true`、それ以外の場合は `false` を返します。
 
@@ -1078,6 +1129,7 @@ capacityBytes = 2 ** capacity × wordSize
 | インスタンス化 | `constructor()` | `Balloc` |
 | ライフサイクル | `alloc()` | `number` |
 | ライフサイクル | `realloc()` | `void` |
+| ライフサイクル | `shrink()` | `void` |
 | ライフサイクル | `free()` | `void` |
 | ライフサイクル | `gc()` | `void` |
 | Stack | `push()` | `boolean` |
@@ -1087,6 +1139,9 @@ capacityBytes = 2 ** capacity × wordSize
 | Queue | `pull()` | `number \| undefined` |
 | Queue | `head()` | `number \| undefined` |
 | アクセス | `has()` | `boolean` |
+| アクセス | `indexOf()` | `number` |
+| アクセス | `lastIndexOf()` | `number` |
+| アクセス | `withView()` | コールバックの戻り値 |
 | アクセス | `get()` | `number \| undefined` |
 | アクセス | `set()` | `boolean` |
 | アクセス | `clear()` | `void` |
@@ -1097,6 +1152,7 @@ capacityBytes = 2 ** capacity × wordSize
 | 容量 | `byteSize()` | `number` |
 | 容量 | `occupied()` | `number` |
 | 容量 | `length()` | `number` |
+| 容量 | `isFull()` | `boolean` |
 | ブロック | `copy()` | `Uint8Array` |
 | ブロック | `copyWithin()` | `Uint8Array` |
 | ブロック | `append()` | `number` |
