@@ -1,12 +1,12 @@
 Você também pode conseguir essa documentação traduzida em outras linguagens:
 | Idioma | Link |
 |---|---|
-| Árabe | [API — balloc.ar.md](./docs/API%20—%20balloc.ar.md) |
-| Chinês | [API — balloc.zh.md](./docs/API%20—%20balloc.zh.md) |
-| Espanhol | [API — balloc.es.md](./docs/API%20—%20balloc.es.md) |
-| Inglês | [API — balloc.en.md](./docs/API%20—%20balloc.en.md) |
-| Japonês | [API — balloc.jp.md](./docs/API%20—%20balloc.jp.md) |
-| Português | [API — balloc.pt.md](./docs/API%20—%20balloc.pt.md) |
+| Árabe | [API — balloc.ar.md](./API%20—%20balloc.ar.md) |
+| Chinês | [API — balloc.zh.md](./API%20—%20balloc.zh.md) |
+| Espanhol | [API — balloc.es.md](./API%20—%20balloc.es.md) |
+| Inglês | [API — balloc.en.md](./API%20—%20balloc.en.md) |
+| Japonês | [API — balloc.jp.md](./API%20—%20balloc.jp.md) |
+| Português | [API — balloc.pt.md](./API%20—%20balloc.pt.md) |
 
 
 # Balloc.js
@@ -29,6 +29,7 @@ Balloc
 ├── Ciclo de vida dos blocos
 │   ├── alloc()
 │   ├── realloc()
+│   ├── shrink()
 │   ├── free()
 │   └── gc()
 │
@@ -127,39 +128,44 @@ occupied(handler)  → slots ocupados
 byteSize(handler)  → bytes físicos reservados
 ```
 
-## Empréstimo de memória com `withView()`
+## Memory Borrowing
 
-`withView(handler, callback)` fornece ao callback uma view tipada diretamente sobre a região de dados do bloco. A view abrange somente os elementos ocupados, não inclui a capacidade livre e não cria uma cópia: alterações feitas nela modificam imediatamente o conteúdo do bloco.
+O Balloc oferece acesso direto, sem cópia e com escopo delimitado aos dados ocupados de um ou mais blocos. O callback recebe views de TypedArray sobre o armazenamento interno, permitindo leitura e escrita sem alocar uma cópia.
 
-O empréstimo é síncrono. O callback recebe a view como único argumento, e o valor retornado pelo callback é propagado por `withView()`. O bloqueio é liberado em um bloco `finally`, inclusive quando o callback lança uma exceção.
+O empréstimo limita-se à execução de um callback síncrono. Durante sua execução, o Balloc bloqueia os blocos emprestados contra operações que possam invalidar as views ou modificar estruturalmente os blocos. O bloqueio é liberado em um bloco `finally`, inclusive quando ocorre uma exceção.
+
+### Empréstimo de um bloco
+
+Passe um handler seguido do callback. Ele recebe uma view contendo somente os elementos ocupados, excluindo a capacidade não utilizada.
 
 ```js
-const result = memory.withView(handler, view => {
+const count = memory.withView(handler, view => {
     view[0] = 42;
     return view.length;
 });
 ```
 
-A view não deve ser retida nem utilizada depois que o callback terminar. Se o callback retornar uma Promise, o empréstimo será liberado assim que o callback retornar essa Promise, e não quando ela for resolvida.
+As escritas pela view afetam imediatamente o bloco, e `withView()` retorna o valor produzido pelo callback.
 
-### Restrições durante o empréstimo
+### Empréstimo de múltiplos blocos
 
-Enquanto um bloco estiver emprestado, uma segunda chamada a `withView()` para o mesmo handler lança `Error`. Também lançam `Error` as operações que modificam diretamente esse bloco:
+Passe dois ou mais handlers antes do callback. Ele recebe uma view para cada handler, na mesma ordem:
 
-- `push()`, `pop()`, `nudge()` e `pull()`;
-- `set()`, `clear()`, `fill()`, `fillAll()` e `put()`;
-- `realloc()` e `free()`;
-- `copyWithin()`;
-- `copy()`, quando o bloco emprestado é o destino;
-- `append()`, quando o bloco emprestado é o destino;
-- `swap()`, quando qualquer um dos dois blocos está emprestado.
+```js
+memory.withView(source, target, (sourceView, targetView) => {
+    targetView.set(sourceView.subarray(0, targetView.length));
+});
+```
 
-As operações de leitura não são bloqueadas. Em `copy()` e `append()`, o bloco de origem pode estar emprestado, pois essas operações não modificam a origem.
+Cada handler deve ser válido, distinto e não pode já estar emprestado. O Balloc adquire todos os bloqueios antes de invocar o callback e os libera ao término.
 
-Além disso, operações que substituem ou remapeiam o `dataBus` não podem ocorrer enquanto existir qualquer view ativa. Isso inclui `gc()` e o crescimento do barramento acionado por `alloc()` ou `realloc()`. Nesses casos, é lançado `Error` com a mensagem `Cannot remap memory while a block is borrowed`.
+### Restrições do empréstimo
 
+A view, ou qualquer subview derivada dela, não deve ser retida, retornada ou utilizada após o término do callback. Se o callback retornar uma Promise, o empréstimo termina imediatamente; portanto, todo acesso deve ser síncrono.
 
----
+Operações que modificam um bloco emprestado são rejeitadas com `Error`: `push()`, `pop()`, `nudge()`, `pull()`, `set()`, `clear()`, `fill()`, `fillAll()`, `put()`, `realloc()`, `shrink()`, `free()` e `copyWithin()`. `copy()` e `append()` são rejeitados quando o bloco emprestado é o destino; `swap()` é rejeitado se qualquer bloco estiver emprestado. Operações de leitura continuam disponíveis, e o empréstimo da origem é permitido em `copy()` e `append()`.
+
+Operações que substituem ou remapeiam o `dataBus` são rejeitadas enquanto houver qualquer view ativa. Isso inclui `gc()` e o crescimento do `dataBus` provocado por `alloc()` ou `realloc()`.
 
 # 1. Instanciamento
 
@@ -312,6 +318,30 @@ memory.realloc(handler);
 ```
 
 A operação duplica a capacidade física, passando para a próxima potência de dois.
+
+---
+
+## `shrink(handler)`
+
+Reduz a capacidade física do bloco à menor potência de dois suportada que comporte os elementos ocupados. A capacidade mínima é de dois elementos. Se a capacidade atual já for suficiente, nada acontece.
+
+Os dados permanecem no mesmo endereço e o handler continua válido porque o header é preservado; somente o campo de capacidade é alterado. Se o bloco estiver no topo do `dataBus`, `dataPointer` recua e o espaço retorna ao heap. Caso contrário, a região liberada é dividida em regiões de potência de dois e cada uma é adicionada à lista de reciclagem.
+
+`shrink()` não altera a ocupação nem move os elementos.
+
+### Parâmetros
+
+| Parâmetro | Tipo | Descrição |
+|---|---|---|
+| `handler` | `number` | Handler do bloco. |
+
+### Retorno
+
+`void`
+
+### Exceções
+
+`Error` — handler inválido ou corrompido, ou o bloco está emprestado por `withView()`.
 
 ---
 
@@ -517,75 +547,15 @@ boolean
 
 ### `indexOf(handler, searchElement, fromIndex = 0)`
 
-Localiza a primeira ocorrência de um elemento na sequência ocupada do bloco.
+Localiza a primeira ocorrência de um valor em ordem crescente de índices. A busca considera somente os elementos ocupados e ignora a capacidade não utilizada.
 
-A busca é realizada em ordem crescente de índices, utilizando a operação `indexOf` do TypedArray subjacente. A pesquisa considera exclusivamente os elementos ocupados, ignorando a capacidade não utilizada do bloco.
+## `lastIndexOf(handler, searchElement, fromIndex = -1)`
 
-A posição inicial da busca pode ser especificada por `fromIndex`, seguindo as regras de indexação de TypedArray.
+Localiza a última ocorrência de um valor em ordem decrescente de índices. A busca considera somente os elementos ocupados e ignora a capacidade não utilizada.
 
-```
-const index = memory.indexOf(handler, 42);
-const nextIndex = memory.indexOf(handler, 42, 3);
-```
+## `withView(...args)`
 
-**Parâmetros**
-
-| Parâmetro       | Tipo                | Padrão | Descrição                                      |
-| --------------- | ------------------- | ------ | ---------------------------------------------- |
-| `handler`       | `number`            | —      | Handler do bloco.                              |
-| `searchElement` | `number \\| bigint` | —      | Elemento a ser localizado.                     |
-| `fromIndex`     | `number`            | `0`    | Índice a partir do qual a busca será iniciada. |
-
-**Retorno**
-
-```
-number
-```
-
-- Índice da primeira ocorrência.
-- `-1` — elemento não encontrado ou bloco vazio.
-
-O índice retornado é relativo ao início da sequência ocupada, não à posição absoluta no `dataBus`.
-
-**Exceções**
-
-\- `Error` — handler inválido ou corrompido.
-
-### `lastIndexOf(handler, searchElement, fromIndex = -1)`
-
-Localiza a última ocorrência de um elemento na sequência ocupada do bloco.
-
-A busca é realizada em ordem decrescente de índices, utilizando a operação `lastIndexOf` do TypedArray subjacente. A pesquisa considera exclusivamente os elementos ocupados, ignorando a capacidade não utilizada do bloco.
-
-A posição inicial da busca pode ser especificada por `fromIndex`, seguindo as regras de indexação de TypedArray. Por padrão, a busca começa no último elemento ocupado.
-
-```
-const index = memory.lastIndexOf(handler, 42);
-const previousIndex = memory.lastIndexOf(handler, 42, 5);
-```
-
-**Parâmetros**
-
-| Parâmetro       | Tipo                | Padrão | Descrição                                      |
-| --------------- | ------------------- | ------ | ---------------------------------------------- |
-| `handler`       | `number`            | —      | Handler do bloco.                              |
-| `searchElement` | `number \\| bigint` | —      | Elemento a ser localizado.                     |
-| `fromIndex`     | `number`            | `-1`   | Índice a partir do qual a busca será iniciada. |
-
-**Retorno**
-
-```
-number
-```
-
-- Índice da última ocorrência.
-- `-1` — elemento não encontrado ou bloco vazio.
-
-O índice retornado é relativo ao início da sequência ocupada, não à posição absoluta no `dataBus`.
-
-**Exceções**
-
-\- `Error` — handler inválido ou corrompido.
+Empresta um ou mais blocos durante um callback síncrono. Passe um ou mais handlers seguidos do callback; ele recebe as views na mesma ordem. `...args` é `number[] + callback`. O retorno é o valor do callback. Lança `TypeError` se não houver handler ou o último argumento não for função, e `Error` se algum handler for inválido, duplicado ou já estiver emprestado.
 
 ---
 
@@ -789,7 +759,7 @@ const capacity = memory.length(handler);
 
 ---
 
-### `isFull(handler)`
+## `isFull(handler)`
 
 Verifica se o bloco de memória atingiu sua capacidade de alocação.
 
@@ -1323,6 +1293,7 @@ A geração participa da validação por cookie. Consequentemente, um handler in
 | Instaciamento | `constructor()` | `Balloc`<br> |
 | Ciclo de vida | `alloc()` | `number`<br> |
 | Ciclo de vida | `realloc()` | `void`<br> |
+| Ciclo de vida | `shrink()` | `void` |
 | Ciclo de vida | `free()` | `void`<br> |
 | Ciclo de vida | `gc()` | `void`<br> |
 | Stack | `push()` | `boolean`<br> |
