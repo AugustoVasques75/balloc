@@ -1,12 +1,12 @@
 You can also get this documentation translated into other languages:
 | Language | Link |
 |---|---|
-| Arabic | [API — balloc.ar.md](./docs/API%20—%20balloc.ar.md) |
-| Chinese | [API — balloc.zh.md](./docs/API%20—%20balloc.zh.md) |
-| Spanish | [API — balloc.es.md](./docs/API%20—%20balloc.es.md) |
-| English | [API — balloc.en.md](./docs/API%20—%20balloc.en.md) |
-| Japanese | [API — balloc.jp.md](./docs/API%20—%20balloc.jp.md) |
-| Portuguese | [API — balloc.pt.md](./docs/API%20—%20balloc.pt.md) |
+| Arabic | [API — balloc.ar.md](./API%20—%20balloc.ar.md) |
+| Chinese | [API — balloc.zh.md](./API%20—%20balloc.zh.md) |
+| Spanish | [API — balloc.es.md](./API%20—%20balloc.es.md) |
+| English | [API — balloc.en.md](./API%20—%20balloc.en.md) |
+| Japanese | [API — balloc.jp.md](./API%20—%20balloc.jp.md) |
+| Portuguese | [API — balloc.pt.md](./API%20—%20balloc.pt.md) |
 
 # Balloc.js
 
@@ -188,7 +188,7 @@ Storage is split between `dataBus`, intended for block data, and `controlBus`, i
 
 `size` must be a safe integer within the range `[2, 0x80000000]`.
 
-`bucketSize` accepts a `BucketType` value which is a string in the format `[Size in bytes][data type]`, accepting only values from the table:
+`bucketSize` accepts a `BucketType` value which is a string in the format `[Bit width][data type]`, accepting only values from the table:
 
 | Signed Integer | Unsigned Integer | Float |
 | --- | --- | --- |
@@ -595,7 +595,7 @@ Borrows one or more blocks for the duration of a synchronous callback. Supply on
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `...args` | `...(number or Function)[]` | One or more block handlers followed by the callback. |
+| `...args` | `number[] + callback` | One or more block handlers followed by the callback. |
 
 ### Return
 
