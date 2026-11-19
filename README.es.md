@@ -300,6 +300,7 @@ A continuación, un resumen de estos grupos:
 | --- | --- |
 | `alloc()` | Asignar un bloque |
 | `realloc()` | Aumentar la capacidad del bloque |
+| `shrink()` | Reducir la capacidad del bloque para ajustarla a los elementos ocupados |
 | `free()` | Liberar un bloque |
 | `gc()` | Compactar el heap de datos |
 
@@ -333,7 +334,7 @@ A continuación, un resumen de estos grupos:
 | `fillAll()` | Rellenar y ocupar todo el bloque |
 | `put()` | Copiar un array a un bloque |
 | `pick()` | Copiar elementos ocupados fuera de un bloque |
-| `withView()` | Tomar prestada una vista tipada de los elementos ocupados |
+| `withView()` | Tomar prestadas vistas tipadas de los elementos ocupados |
 
 ### Intercambio entre bloques
 
@@ -365,26 +366,6 @@ A continuación, un resumen de estos grupos:
 | `allocatedBytes` | Bytes asociados a regiones no recicladas |
 | `unallocatedBytes` | Espacio restante tras el puntero de bump |
 | `fragmentationRatio` | Bytes reciclados / área de heap usada |
-
-### Préstamo de memoria con `withView()`
-
-`withView(handler, callback)` proporciona al callback una `TypedArray` directamente sobre la región ocupada del bloque. La vista no es una copia: los cambios realizados en ella modifican el contenido del bloque. El callback es síncrono, recibe la vista como único argumento y su valor de retorno se propaga mediante `withView()`.
-
-La vista no debe conservarse ni utilizarse después de que termine el callback. Si el callback devuelve una Promise, el préstamo se libera inmediatamente al devolverla, sin esperar a que se resuelva. El bloqueo también se libera si el callback lanza una excepción.
-
-Mientras un bloque esté prestado, se bloquean las operaciones que lo modifican directamente, incluidas `push()`, `pop()`, `nudge()`, `pull()`, `set()`, `clear()`, `fill()`, `fillAll()`, `put()`, `realloc()`, `free()` y las operaciones de copia que lo utilizan como destino. `swap()` también se bloquea si cualquiera de los dos bloques está prestado. Las lecturas y las operaciones que utilizan el bloque únicamente como origen siguen permitidas.
-
-Las operaciones que sustituyen o reasignan `dataBus`, como `gc()` y el crecimiento del bus provocado por `alloc()` o `realloc()`, se bloquean mientras haya alguna vista activa.
-
-Ejemplo:
-
-```js
-const result = memory.withView(handler, view => {
-    view[0] = 42;
-    return view.length;
-});
-```
-
 ### Funciones internas
 
 Son un caso especial de API utilizada primariamente dentro del propio asignador y normalmente no se recomiendan para el uso diario, ya que pueden causar efectos secundarios no documentados. Su uso está destinado a extensiones y modificaciones de la biblioteca donde sea fundamental la comprensión total del código fuente de Balloc.
