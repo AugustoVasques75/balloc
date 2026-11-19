@@ -36,7 +36,6 @@ Balloc
 │   │   ├── push()
 │   │   ├── pop()
 │   │   └── peek()
-│   │
 │   └── Queue
 │       ├── nudge()
 │       ├── pull()
@@ -44,21 +43,21 @@ Balloc
 │
 ├── Acceso al contenido
 │   ├── has()
-│   ├── indexOf()
-│   ├── lastIndexOf()
 │   ├── get()
 │   ├── set()
 │   ├── clear()
 │   ├── fill()
 │   ├── fillAll()
 │   ├── put()
-│   └── pick()
+│   ├── pick()
+│   ├── indexOf()
+│   ├── lastIndexOf()
 │   └── withView()
 │
 ├── Capacidad y ocupación
 │   ├── byteSize()
 │   ├── occupied()
-│   └── length()
+│   ├── length()
 │   └── isFull()
 │
 ├── Operaciones entre bloques
@@ -83,11 +82,9 @@ Balloc
     ├── Reciclaje
     │   ├── recyclePush()
     │   └── recyclePop()
-    │
     ├── Escalado
     │   ├── grow()
     │   └── headerGrow()
-    │
     └── Utilidades
         ├── extractMetadata()
         └── bakeCookie()
