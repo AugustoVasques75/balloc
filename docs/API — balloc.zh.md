@@ -23,12 +23,14 @@
 Balloc
 ├── 实例化
 │   └── constructor()
+│
 ├── 数据块生命周期
 │   ├── alloc()
 │   ├── realloc()
 │   ├── shrink()
 │   ├── free()
 │   └── gc()
+│
 ├── 线性结构
 │   ├── Stack
 │   │   ├── push()
@@ -38,38 +40,44 @@ Balloc
 │       ├── nudge()
 │       ├── pull()
 │       └── head()
+│
 ├── 内容访问
 │   ├── has()
-│   ├── indexOf()
-│   ├── lastIndexOf()
 │   ├── get()
 │   ├── set()
 │   ├── clear()
 │   ├── fill()
 │   ├── fillAll()
 │   ├── put()
-│   └── pick()
+│   ├── pick()
+│   ├── indexOf()
+│   ├── lastIndexOf()
 │   └── withView()
+│
 ├── 容量与占用量
 │   ├── byteSize()
 │   ├── occupied()
-│   └── length()
+│   ├── length()
 │   └── isFull()
+│
 ├── 数据块间操作
 │   ├── copy()
 │   ├── copyWithin()
 │   ├── append()
 │   ├── clone()
 │   └── swap()
+│
 ├── 序列化
 │   ├── dump()
 │   └── load()
+│
 ├── 诊断与使用情况
 │   ├── recycleCount()
 │   ├── recycleBytes
 │   ├── allocatedBytes
 │   ├── unallocatedBytes
 │   └── fragmentationRatio
+│
 └── 内部使用
     ├── 回收
     │   ├── recyclePush()
