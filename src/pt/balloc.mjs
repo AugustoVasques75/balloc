@@ -952,11 +952,10 @@ export default class Balloc {
      * retornada ou utilizada após o término do callback. Essa restrição
      * também se aplica a subviews derivadas da view original.
      *
-     * @param {number} handler - Handler do bloco.
-     * @param {Function} callback - Função que recebe a TypedArray compartilhada.
+     * @param {...number|Function} args - Um ou mais handlers, seguidos pelo callback.
      * @returns {*} Retorno produzido pelo callback.
-     * @throws {TypeError} Se callback não for uma função.
-     * @throws {Error} Se o handler for inválido ou já estiver emprestado.
+     * @throws {TypeError} Se não houver handler ou se o callback não for uma função.
+     * @throws {Error} Se algum handler for inválido, duplicado ou já estiver emprestado.
      */
     withView(...args) {
         if (args.length < 2) throw new TypeError("At least one handler and one callback are required");
@@ -974,13 +973,12 @@ export default class Balloc {
 
         if (flags.some(flag => flag & VIEW_LOCK)) throw new Error("Block is already borrowed");
 
-        const acquired = [];
+        let acquiredCount = 0;
 
         try {
             for (const header of headers) {
-                const address = header + FLAGS_OFFSET;
-                this.controlBus[address] |= VIEW_LOCK;
-                acquired.push(address);
+                this.controlBus[header + FLAGS_OFFSET] |= VIEW_LOCK;
+                acquiredCount++;
             }
 
             const views = metadata.map(meta => {
@@ -990,7 +988,9 @@ export default class Balloc {
 
             return callback(...views);
         } finally {
-            for (const address of acquired) this.controlBus[address] &= ~VIEW_LOCK;
+            for (let i = 0; i < acquiredCount; i++) {
+                this.controlBus[headers[i] + FLAGS_OFFSET] &= ~VIEW_LOCK;
+            }
         }
     }
 
