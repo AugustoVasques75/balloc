@@ -294,54 +294,17 @@ export default class Balloc {
     }
 
     /**
-     * Reduces a block to the smallest power-of-two capacity that can contain
-     * its occupied elements, while preserving its address and handler.
+     * 将内存块缩小到能够容纳其已占用元素的最小 2 的幂次容量，
+     * 同时保留其地址和句柄。
      *
-     * If the block is at the top of the dataBus, dataPointer is moved backward.
-     * Otherwise, the released tail is split into power-of-two regions and each
-     * region is returned to the recycling list.
+     * 如果该块位于 dataBus 的顶部，则向后回退 dataPointer。
+     * 否则，将释放的尾部区域拆分为若干个容量为 2 的幂次的区域，
+     * 并将每个区域归还到回收列表。
      *
-     * @param {number} handler - Handler of the block to shrink.
+     * @param {number} handler - 要缩小的内存块的句柄。
      * @returns {void}
-     * @throws {Error} If the handler is invalid, corrupted, or borrowed by withView().
+     * @throws {Error} 如果句柄无效、已损坏，或该块正通过 withView() 被借用。
      */
-    shrink(handler) {
-        const meta = this.extractMetadata(handler, this.metadata);
-        this.assertNotBorrowed(meta.headerAddress);
-
-        const newCapacity = Math.max(1, 32 - Math.clz32(Math.max(2, meta.occupied) - 1));
-        if (newCapacity >= meta.capacityExponent) return;
-
-        const oldBlockSize = meta.byteCapacity;
-        const newBlockSize = (2 ** newCapacity) * this.wordSize;
-        const oldEnd = meta.dataAddress + oldBlockSize;
-
-        this.controlAdapter.setUint8(meta.headerAddress + CAPACITY_OFFSET, newCapacity);
-
-        if (oldEnd === this.dataPointer) {
-            this.dataPointer = meta.dataAddress + newBlockSize;
-            return;
-        }
-
-        let address = meta.dataAddress + newBlockSize;
-        for (let exponent = newCapacity; exponent < meta.capacityExponent; exponent++) {
-            const segmentSize = (2 ** exponent) * this.wordSize;
-            this.recyclePush(segmentSize, address);
-            address += segmentSize;
-        }
-    }
-
-    /**
-    * 释放内存块。
-    *
-    * 通过将块标头的 cookie 清零使其失效，并记录其地址以便后续复用。
-    * 数据区域也会被交还给回收系统，除非该块刚好位于 `dataBus` 的顶部；
-    * 在这种情况下，`dataPointer` 会直接回滚，从而消除该区域而无需在回收列表中创建条目。
-    *
-    * @param {number} handler - 要释放的块的句柄。
-    * @returns {void}
-    * @throws {Error} 如果句柄无效、已损坏，或者块正通过 withView() 被借用。
-    */
     free(handler) {
 
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
