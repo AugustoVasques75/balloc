@@ -23,7 +23,7 @@ Os blocos são identificados externamente por um **handler lógico de 43 bits**,
 
 ```text
 Balloc
-├── Instanciamento
+├── Instanciação
 │   └── constructor()
 │
 ├── Ciclo de vida dos blocos
@@ -38,7 +38,6 @@ Balloc
 │   │   ├── push()
 │   │   ├── pop()
 │   │   └── peek()
-│   │
 │   └── Queue
 │       ├── nudge()
 │       ├── pull()
@@ -46,8 +45,6 @@ Balloc
 │
 ├── Acesso ao conteúdo
 │   ├── has()
-│   ├── indexOf()
-│   ├── lastIndexOf()
 │   ├── get()
 │   ├── set()
 │   ├── clear()
@@ -55,8 +52,9 @@ Balloc
 │   ├── fillAll()
 │   ├── put()
 │   ├── pick()
+│   ├── indexOf()
+│   ├── lastIndexOf()
 │   └── withView()
-│
 │
 ├── Capacidade e ocupação
 │   ├── byteSize()
@@ -64,12 +62,11 @@ Balloc
 │   ├── length()
 │   └── isFull()
 │
-│
 ├── Operações entre blocos
 │   ├── copy()
 │   ├── copyWithin()
 │   ├── append()
-│   └── clone()
+│   ├── clone()
 │   └── swap()
 │
 ├── Serialização
@@ -87,11 +84,9 @@ Balloc
     ├── Reciclagem
     │   ├── recyclePush()
     │   └── recyclePop()
-    │
-    ├── Escalonamento
+    ├── Expansão
     │   ├── grow()
     │   └── headerGrow()
-    │
     └── Utilitários
         ├── extractMetadata()
         └── bakeCookie()
