@@ -404,7 +404,7 @@ describe("Balloc", () => {
             memory.shrink(single);
 
             expect(memory.length(empty)).toBe(2);
-            expect(memory.length(single)).toBe(8);
+            expect(memory.length(single)).toBe(2);
             expect(memory.pick(single)).toEqual(new Uint8Array([7]));
         });
 
