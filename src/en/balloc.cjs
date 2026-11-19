@@ -219,6 +219,38 @@ var Balloc = class {
     this.recyclePush(oldBlockSize, dataAddress);
   }
   /**
+   * Reduces a block to the smallest power-of-two capacity that can contain
+   * its occupied elements, while preserving its address and handler.
+   *
+   * If the block is at the top of the dataBus, dataPointer is moved backward.
+   * Otherwise, the released tail is split into power-of-two regions and each
+   * region is returned to the recycling list.
+   *
+   * @param {number} handler - Handler of the block to shrink.
+   * @returns {void}
+   * @throws {Error} If the handler is invalid, corrupted, or borrowed by withView().
+   */
+  shrink(handler) {
+    const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
+    const newCapacity = Math.max(1, 32 - Math.clz32(Math.max(2, meta.occupied) - 1));
+    if (newCapacity >= meta.capacityExponent) return;
+    const oldBlockSize = meta.byteCapacity;
+    const newBlockSize = 2 ** newCapacity * this.wordSize;
+    const oldEnd = meta.dataAddress + oldBlockSize;
+    this.controlAdapter.setUint8(meta.headerAddress + CAPACITY_OFFSET, newCapacity);
+    if (oldEnd === this.dataPointer) {
+      this.dataPointer = meta.dataAddress + newBlockSize;
+      return;
+    }
+    let address = meta.dataAddress + newBlockSize;
+    for (let exponent = newCapacity; exponent < meta.capacityExponent; exponent++) {
+      const segmentSize = 2 ** exponent * this.wordSize;
+      this.recyclePush(segmentSize, address);
+      address += segmentSize;
+    }
+  }
+  /**
   * Frees a memory block.
   *
   * The block's header is invalidated by zeroing its cookie, and its
@@ -412,7 +444,6 @@ var Balloc = class {
    * element. Block occupancy is incremented only when space is available
    * within its capacity.
    *
-   * @param {number} handler - Block handle.
    * @param {number} value - Value to be inserted.
    * @returns {boolean} `true` if the value was inserted; `false` if the block
    * is already out of available space.
@@ -769,23 +800,36 @@ var Balloc = class {
    * also applies to subviews derived from the original view.
    *
    * @param {number} handler - Block handle.
-   * @param {Function} callback - Function receiving the shared TypedArray.
+   * @param {...(number|Function)} args - One or more block handles followed by the callback.
    * @returns {*} Return value produced by the callback.
-   * @throws {TypeError} If callback is not a function.
-   * @throws {Error} If the handle is invalid or already borrowed.
+   * @throws {TypeError} If no handle is provided or the callback is not a function.
+   * @throws {Error} If a handle is invalid, duplicated, or already borrowed.
    */
-  withView(handler, callback) {
+  withView(...args) {
+    if (args.length < 2) throw new TypeError("At least one handler and one callback are required");
+    const callback = args.pop();
     if (typeof callback !== "function") throw new TypeError("callback must be a function");
-    const meta = this.extractMetadata(handler, this.metadata);
-    const flagsAddress = meta.headerAddress + FLAGS_OFFSET;
-    const flags = this.controlBus[flagsAddress];
-    if (flags & VIEW_LOCK) throw new Error("Block is already borrowed");
-    this.controlBus[flagsAddress] = flags | VIEW_LOCK;
+    const handlers = args;
+    const metadata = handlers.map((handler) => this.extractMetadata(handler, {}));
+    const headers = metadata.map((meta) => meta.headerAddress);
+    if (new Set(headers).size !== headers.length) throw new Error("Duplicate handler");
+    const flags = headers.map((header) => this.controlBus[header + FLAGS_OFFSET]);
+    if (flags.some((flag) => flag & VIEW_LOCK)) throw new Error("Block is already borrowed");
+    let acquiredCount = 0;
     try {
-      const rawAddress = meta.dataAddress >>> this.wordShift;
-      return callback(this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied));
+      for (const header of headers) {
+        this.controlBus[header + FLAGS_OFFSET] |= VIEW_LOCK;
+        acquiredCount++;
+      }
+      const views = metadata.map((meta) => {
+        const rawAddress = meta.dataAddress >>> this.wordShift;
+        return this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied);
+      });
+      return callback(...views);
     } finally {
-      this.controlBus[flagsAddress] &= ~VIEW_LOCK;
+      for (let i = 0; i < acquiredCount; i++) {
+        this.controlBus[headers[i] + FLAGS_OFFSET] &= ~VIEW_LOCK;
+      }
     }
   }
   // ======== CAPACITY IN SLOTS ==========

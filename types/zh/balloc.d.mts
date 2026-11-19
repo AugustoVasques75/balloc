@@ -117,17 +117,19 @@ export default class Balloc {
      */
     realloc(handler: number): void;
     /**
-    * 释放内存块。
-    *
-    * 通过将块标头的 cookie 清零使其失效，并记录其地址以便后续复用。
-    * 数据区域也会被交还给回收系统，除非该块刚好位于 `dataBus` 的顶部；
-    * 在这种情况下，`dataPointer` 会直接回滚，从而消除该区域而无需在回收列表中创建条目。
-    *
-    * @param {number} handler - 要释放的块的句柄。
-    * @returns {void}
-    * @throws {Error} 如果句柄无效、已损坏，或者块正通过 withView() 被借用。
-    */
-    free(handler: number): void;
+     * 将内存块缩小到能够容纳其已占用元素的最小 2 的幂次容量，
+     * 同时保留其地址和句柄。
+     *
+     * 如果该块位于 dataBus 的顶部，则向后回退 dataPointer。
+     * 否则，将释放的尾部区域拆分为若干个容量为 2 的幂次的区域，
+     * 并将每个区域归还到回收列表。
+     *
+     * @param {number} handler - 要缩小的内存块的句柄。
+     * @returns {void}
+     * @throws {Error} 如果句柄无效、已损坏，或该块正通过 withView() 被借用。
+     */
+    shrink(handler: number): void;
+    free(handler: any): void;
     /**
      * [内部使用]
      * 将空闲区域插入回收列表。
@@ -209,13 +211,12 @@ export default class Balloc {
      * 该元素被写入最后一个占用元素之后的第一个空闲位置。
      * 只有在容量范围内有可用空间时，块的占用数才会递增。
      *
-     * @param {number} handler - 块句柄。
      * @param {number} value - 要插入的值。
      * @returns {boolean} 如果值已成功插入则为 `true`；如果块已无可用空间则为 `false`。
      * @throws {Error} 如果句柄无效、已损坏，或者块正通过 withView() 被借用。
      *
      */
-    push(handler: number, value: number): boolean;
+    push(handler: any, value: number): boolean;
     /**
      * 移除块中最后一个占用的元素并将其返回。
      *
@@ -414,12 +415,12 @@ export default class Balloc {
      * 此限制同样适用于从原始视图派生的子视图（subviews）。
      *
      * @param {number} handler - 块句柄。
-     * @param {Function} callback - 接收共享 TypedArray 的函数。
+     * @param {...(number|Function)} args - 一个或多个块句柄，最后一个参数为回调函数。
      * @returns {*} 回调函数产生 返回值。
-     * @throws {TypeError} 如果回调不是函数。
-     * @throws {Error} 如果句柄无效或已被借用。
+     * @throws {TypeError} 如果未提供句柄或回调不是函数。
+     * @throws {Error} 如果任一句柄无效、重复或已被借用。
      */
-    withView(handler: number, callback: Function): any;
+    withView(...args: (number | Function)[]): any;
     /**
      * 返回块的物理容量（以字节为单位）。
      *

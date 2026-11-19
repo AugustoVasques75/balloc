@@ -1,12 +1,12 @@
 También puedes conseguir esta documentación traducida a otros idiomas:
 | Idioma | Enlace |
 |---|---|
-| Árabe | [API — balloc.ar.md](./docs/API%20—%20balloc.ar.md) |
-| Chino | [API — balloc.zh.md](./docs/API%20—%20balloc.zh.md) |
-| Español | [API — balloc.es.md](./docs/API%20—%20balloc.es.md) |
-| Inglés | [API — balloc.en.md](./docs/API%20—%20balloc.en.md) |
-| Japonés | [API — balloc.jp.md](./docs/API%20—%20balloc.jp.md) |
-| Portugués | [API — balloc.pt.md](./docs/API%20—%20balloc.pt.md) |
+| Árabe | [API — balloc.ar.md](./API%20—%20balloc.ar.md) |
+| Chino | [API — balloc.zh.md](./API%20—%20balloc.zh.md) |
+| Español | [API — balloc.es.md](./API%20—%20balloc.es.md) |
+| Inglés | [API — balloc.en.md](./API%20—%20balloc.en.md) |
+| Japonés | [API — balloc.jp.md](./API%20—%20balloc.jp.md) |
+| Portugués | [API — balloc.pt.md](./API%20—%20balloc.pt.md) |
 
 # Balloc.js
 
@@ -27,6 +27,7 @@ Balloc
 ├── Ciclo de vida de los bloques
 │   ├── alloc()
 │   ├── realloc()
+│   ├── shrink()
 │   ├── free()
 │   └── gc()
 │
@@ -35,7 +36,6 @@ Balloc
 │   │   ├── push()
 │   │   ├── pop()
 │   │   └── peek()
-│   │
 │   └── Queue
 │       ├── nudge()
 │       ├── pull()
@@ -49,12 +49,16 @@ Balloc
 │   ├── fill()
 │   ├── fillAll()
 │   ├── put()
-│   └── pick()
+│   ├── pick()
+│   ├── indexOf()
+│   ├── lastIndexOf()
+│   └── withView()
 │
 ├── Capacidad y ocupación
 │   ├── byteSize()
 │   ├── occupied()
-│   └── length()
+│   ├── length()
+│   └── isFull()
 │
 ├── Operaciones entre bloques
 │   ├── copy()
@@ -78,11 +82,9 @@ Balloc
     ├── Reciclaje
     │   ├── recyclePush()
     │   └── recyclePop()
-    │
     ├── Escalado
     │   ├── grow()
     │   └── headerGrow()
-    │
     └── Utilidades
         ├── extractMetadata()
         └── bakeCookie()
@@ -122,28 +124,44 @@ byteSize(handler)  → bytes físicos reservados
 
 ---
 
-## Préstamo de memoria con `withView()`
+## Préstamo de memoria
 
-`withView(handler, callback)` entrega al callback una vista tipada directamente sobre la región de datos ocupada del bloque. La vista incluye únicamente los elementos ocupados, excluye la capacidad libre y no es una copia: los cambios realizados en ella modifican inmediatamente el contenido del bloque.
+Balloc permite el acceso directo y sin copia a los datos ocupados de uno o varios bloques. El callback recibe vistas tipadas sobre el almacenamiento interno, lo que permite leer y escribir sin asignar una copia.
 
-El préstamo es síncrono. El callback recibe la vista como único argumento y su valor de retorno se propaga mediante `withView()`. El bloqueo se libera dentro de un bloque `finally`, incluso si el callback lanza una excepción.
+El préstamo se limita a un callback síncrono. Mientras se ejecuta, Balloc bloquea los bloques prestados frente a operaciones que podrían invalidar las vistas o modificar su estructura. El bloqueo se libera en un bloque `finally`, incluso si se produce una excepción.
+
+### Un solo bloque
+
+Pasa un handler seguido del callback. Este recibe una vista que contiene únicamente los elementos ocupados, sin la capacidad no utilizada.
 
 ```js
-const result = memory.withView(handler, view => {
+const count = memory.withView(handler, view => {
     view[0] = 42;
     return view.length;
 });
 ```
 
-No se debe conservar ni utilizar la vista después de que termine el callback. Si el callback devuelve una Promise, el préstamo termina en cuanto se devuelve la Promise, sin esperar a que se resuelva.
+Las escrituras a través de la vista modifican inmediatamente el bloque; `withView()` devuelve el valor del callback.
 
-### Restricciones durante el préstamo
+### Varios bloques
 
-Una segunda llamada a `withView()` para el mismo handler lanza `Error`. También lanzan `Error` las operaciones que modificarían el bloque prestado: `push()`, `pop()`, `nudge()`, `pull()`, `set()`, `clear()`, `fill()`, `fillAll()`, `put()`, `realloc()`, `free()` y `copyWithin()`. `copy()` y `append()` se bloquean cuando el bloque prestado es el destino. `swap()` se bloquea si cualquiera de los dos bloques está prestado.
+Pasa dos o más handlers antes del callback. Este recibe una vista por handler, en el mismo orden:
 
-Las operaciones de lectura no se bloquean. En `copy()` y `append()`, el bloque de origen puede estar prestado porque estas operaciones no lo modifican.
+```js
+memory.withView(source, target, (sourceView, targetView) => {
+    targetView.set(sourceView.subarray(0, targetView.length));
+});
+```
 
-Las operaciones que sustituyen o reasignan `dataBus` también se bloquean mientras haya alguna vista activa. Esto incluye `gc()` y el crecimiento de `dataBus` provocado por `alloc()` o `realloc()`.
+Cada handler debe ser válido, distinto y no estar prestado. Balloc adquiere todos los bloqueos antes de ejecutar el callback y los libera al terminar.
+
+### Restricciones del préstamo
+
+No se debe conservar, devolver ni utilizar la vista, ni ninguna subvista derivada, después de que termine el callback. Si devuelve una Promise, el préstamo finaliza inmediatamente; todo acceso debe ser síncrono.
+
+Las operaciones que modifican un bloque prestado se rechazan con `Error`: `push()`, `pop()`, `nudge()`, `pull()`, `set()`, `clear()`, `fill()`, `fillAll()`, `put()`, `realloc()`, `shrink()`, `free()` y `copyWithin()`. `copy()` y `append()` se rechazan si el bloque prestado es el destino; `swap()` se rechaza si cualquiera está prestado. Las operaciones de lectura siguen disponibles y se permite prestar el origen en `copy()` y `append()`.
+
+Las operaciones que sustituyen o reasignan `dataBus` se rechazan mientras haya alguna vista activa. Esto incluye `gc()` y el crecimiento de `dataBus` provocado por `alloc()` o `realloc()`.
 
 # 1. Instanciación
 
@@ -290,6 +308,30 @@ memory.realloc(handler);
 ```
 
 La operación duplica la capacidad física, llevándola a la siguiente potencia de dos.
+
+---
+
+## `shrink(handler)`
+
+Reduce la capacidad física del bloque a la menor potencia de dos admitida que pueda contener los elementos ocupados. La capacidad mínima es de dos elementos. Si la capacidad actual ya es suficiente, no hace nada.
+
+Los datos permanecen en la misma dirección y el handler sigue siendo válido porque se conserva el header; solo cambia el campo de capacidad. Si el bloque está en la parte superior de `dataBus`, `dataPointer` retrocede y el espacio vuelve al heap. En caso contrario, la cola liberada se divide en regiones de tamaño potencia de dos y se añade a la lista de reciclaje.
+
+`shrink()` no modifica la ocupación ni mueve los elementos.
+
+### Parámetros
+
+| Parámetro | Tipo | Descripción |
+|---|---|---|
+| `handler` | `number` | Handler del bloque. |
+
+### Retorno
+
+`void`
+
+### Excepciones
+
+`Error` — handler no válido o corrupto, o el bloque está prestado mediante `withView()`.
 
 ---
 
@@ -490,11 +532,17 @@ boolean
 
 ## `indexOf(handler, searchElement, fromIndex = 0)`
 
-Buscar la primera aparición de un valor. The search proceeds in ascending index order and considers only occupied elements, ignoring unused block capacity.
+Busca la primera aparición de un valor en orden ascendente de índices. Solo examina los elementos ocupados e ignora la capacidad no utilizada.
 
 ## `lastIndexOf(handler, searchElement, fromIndex = -1)`
 
-Buscar la última aparición de un valor. The search proceeds in descending index order and considers only occupied elements, ignoring unused block capacity.
+Busca la última aparición de un valor en orden descendente de índices. Solo examina los elementos ocupados e ignora la capacidad no utilizada.
+
+## `withView(...args)`
+
+Presta uno o varios bloques durante un callback síncrono. Pasa uno o más handlers y, al final, el callback; este recibe las vistas en el mismo orden. `...args` es `number[] + callback`. El retorno es el valor del callback. Lanza `TypeError` si falta un handler o el último argumento no es una función, y `Error` si algún handler no es válido, está duplicado o ya está prestado.
+
+---
 
 ## `get(handler, index)`
 
@@ -680,7 +728,7 @@ const count = memory.occupied(handler);
 
 ## `length(handler)`
 
-### `isFull(handler)`
+## `isFull(handler)`
 
 Comprobar si el bloque está completamente ocupado. Devuelve `true` cuando el número de elementos ocupados coincide con la capacidad física del bloque; en caso contrario, devuelve `false`.
 
@@ -1172,6 +1220,7 @@ La generación participa en la validación mediante cookie. En consecuencia, un 
 | Instanciación | `constructor()` | `Balloc` |
 | Ciclo de vida | `alloc()` | `number` |
 | Ciclo de vida | `realloc()` | `void` |
+| Ciclo de vida | `shrink()` | `void` |
 | Ciclo de vida | `free()` | `void` |
 | Ciclo de vida | `gc()` | `void` |
 | Stack | `push()` | `boolean` |
@@ -1181,6 +1230,9 @@ La generación participa en la validación mediante cookie. En consecuencia, un 
 | Queue | `pull()` | `number \| undefined` |
 | Queue | `head()` | `number \| undefined` |
 | Acceso | `has()` | `boolean` |
+| Acceso | `indexOf()` | `number` |
+| Acceso | `lastIndexOf()` | `number` |
+| Acceso | `withView()` | Valor del callback |
 | Acceso | `get()` | `number \| undefined` |
 | Acceso | `set()` | `boolean` |
 | Acceso | `clear()` | `void` |
@@ -1191,6 +1243,7 @@ La generación participa en la validación mediante cookie. En consecuencia, un 
 | Capacidad | `byteSize()` | `number` |
 | Capacidad | `occupied()` | `number` |
 | Capacidad | `length()` | `number` |
+| Capacidad | `isFull()` | `boolean` |
 | Bloques | `copy()` | `Uint8Array` |
 | Bloques | `copyWithin()` | `Uint8Array` |
 | Bloques | `append()` | `number` |

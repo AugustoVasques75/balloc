@@ -1,12 +1,12 @@
 You can also get this documentation translated into other languages:
 | Language | Link |
 |---|---|
-| Arabic | [API — balloc.ar.md](./docs/API%20—%20balloc.ar.md) |
-| Chinese | [API — balloc.zh.md](./docs/API%20—%20balloc.zh.md) |
-| Spanish | [API — balloc.es.md](./docs/API%20—%20balloc.es.md) |
-| English | [API — balloc.en.md](./docs/API%20—%20balloc.en.md) |
-| Japanese | [API — balloc.jp.md](./docs/API%20—%20balloc.jp.md) |
-| Portuguese | [API — balloc.pt.md](./docs/API%20—%20balloc.pt.md) |
+| Arabic | [API — balloc.ar.md](./API%20—%20balloc.ar.md) |
+| Chinese | [API — balloc.zh.md](./API%20—%20balloc.zh.md) |
+| Spanish | [API — balloc.es.md](./API%20—%20balloc.es.md) |
+| English | [API — balloc.en.md](./API%20—%20balloc.en.md) |
+| Japanese | [API — balloc.jp.md](./API%20—%20balloc.jp.md) |
+| Portuguese | [API — balloc.pt.md](./API%20—%20balloc.pt.md) |
 
 # Balloc.js
 
@@ -27,6 +27,7 @@ Balloc
 ├── Block Lifecycle
 │   ├── alloc()
 │   ├── realloc()
+│   ├── shrink()
 │   ├── free()
 │   └── gc()
 │
@@ -49,12 +50,16 @@ Balloc
 │   ├── fill()
 │   ├── fillAll()
 │   ├── put()
-│   └── pick()
+│   ├── pick()
+│   ├── indexOf()
+│   ├── lastIndexOf()
+│   └── withView()
 │
 ├── Capacity and Occupancy
 │   ├── byteSize()
 │   ├── occupied()
-│   └── length()
+│   ├── length()
+│   └── isFull()
 │
 ├── Inter-block Operations
 │   ├── copy()
@@ -126,28 +131,44 @@ byteSize(handler)  → reserved physical bytes
 
 ---
 
-## Memory borrowing with `withView()`
+## Memory Borrowing
 
-`withView(handler, callback)` passes the callback a typed view directly over the block's occupied data region. The view covers only occupied elements, excludes unused capacity, and is not a copy: changes made through it immediately modify the block's contents.
+Balloc supports **scoped, zero-copy access** to the occupied data of one or more blocks. This is a borrowing mechanism: a callback receives typed-array views over Balloc's internal storage, allowing direct reads and writes without allocating a copy.
 
-The borrow is synchronous. The callback receives the view as its only argument, and its return value is propagated by `withView()`. The lock is released in a `finally` block, including when the callback throws.
+The borrow is deliberately scoped to a synchronous callback. While the callback is running, Balloc locks each borrowed block against operations that could invalidate or structurally modify its view. The lock is released in a `finally` block, including when the callback throws.
+
+### A single block
+
+Pass a handler followed by a callback. The callback receives a typed-array view containing only the block's occupied elements; unused capacity is excluded.
 
 ```js
-const result = memory.withView(handler, view => {
+const count = memory.withView(handler, view => {
     view[0] = 42;
     return view.length;
 });
 ```
 
-Do not retain or use the view after the callback finishes. If the callback returns a Promise, the borrow ends as soon as the Promise is returned; it is not held until the Promise settles.
+Writes through the view immediately affect the block. No copy is made, and the callback's return value is returned by `withView()`.
 
-### Restrictions during a borrow
+### Multiple blocks
 
-A second `withView()` call for the same handler throws `Error`. The following operations also throw `Error` when they would modify the borrowed block: `push()`, `pop()`, `nudge()`, `pull()`, `set()`, `clear()`, `fill()`, `fillAll()`, `put()`, `realloc()`, `free()`, and `copyWithin()`. `copy()` and `append()` are blocked when the borrowed block is the destination. `swap()` is blocked when either block is borrowed.
+Pass two or more handlers before the callback. The callback receives one view per handler, in the same order:
 
-Read operations are not blocked. In `copy()` and `append()`, the source block may be borrowed because these operations do not modify it.
+```js
+memory.withView(source, target, (sourceView, targetView) => {
+    targetView.set(sourceView.subarray(0, targetView.length));
+});
+```
 
-Operations that replace or remap `dataBus` are also blocked while any view is active. This includes `gc()` and `dataBus` growth triggered by `alloc()` or `realloc()`.
+Each handler must be valid, distinct, and not already borrowed. Balloc acquires the locks before invoking the callback and releases all acquired locks when it exits.
+
+### Borrowing constraints
+
+A borrowed view, or any subview derived from it, must not be retained, returned, or used after the callback finishes. If the callback returns a Promise, the borrow ends immediately when that Promise is returned; it is not held until the Promise settles. The callback must therefore complete all view access synchronously.
+
+While a block is borrowed, operations that modify that block are rejected with `Error`. This includes `push()`, `pop()`, `nudge()`, `pull()`, `set()`, `clear()`, `fill()`, `fillAll()`, `put()`, `realloc()`, `shrink()`, `free()`, and `copyWithin()`. `copy()` and `append()` are rejected when the borrowed block is the destination; a borrowed source is allowed. `swap()` is rejected if either block is borrowed. Read-only operations remain available.
+
+Operations that replace or remap `dataBus` are rejected while any view is active. This includes `gc()` and growth of `dataBus` triggered by `alloc()` or `realloc()`.
 
 # 1. Instantiation
 
@@ -162,12 +183,12 @@ Storage is split between `dataBus`, intended for block data, and `controlBus`, i
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `size` | `number` | `65535` | Initial capacity of `dataBus`, in bytes. |
-| `bucketSize` | `BucketType` | Size of each element. |  |
+| `bucketSize` | `BucketType` | `"32u"` | Element type and width. |
 | `metadataSize` | `number` | `1024` | Initial capacity of `controlBus`, in bytes. |
 
 `size` must be a safe integer within the range `[2, 0x80000000]`.
 
-`bucketSize` accepts a `BucketType` value which is a string in the format `[Size in bytes][data type]`, accepting only values from the table:
+`bucketSize` accepts a `BucketType` value which is a string in the format `[Bit width][data type]`, accepting only values from the table:
 
 | Signed Integer | Unsigned Integer | Float |
 | --- | --- | --- |
@@ -302,6 +323,48 @@ memory.realloc(handler);
 ```
 
 The operation doubles physical capacity, moving to the next power of two.
+
+---
+
+## `shrink(handler)`
+
+Reduces a block's physical capacity to the smallest supported power of two that can contain its current occupied elements. The minimum capacity is two elements. If the current capacity is already sufficient, the method does nothing.
+
+The block's data remains at the same address, and its handler remains valid because the header is preserved. Only the capacity recorded in the header changes. The released tail is reclaimed according to the block's position:
+
+* If the block is at the top of `dataBus`, `dataPointer` moves backward and the released space is returned directly to the heap.
+* Otherwise, the released tail is split into power-of-two regions and each region is added to the recycling list for later reuse.
+
+`shrink()` does not change occupancy or move the occupied elements.
+
+### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `handler` | `number` | Block handler. |
+
+### Return
+
+```text
+void
+```
+
+### Exceptions
+
+* `Error` — invalid or corrupted handler, or the block is currently borrowed through `withView()`.
+
+### Example
+
+```js
+const handler = memory.alloc(128);
+memory.put(handler, [10, 20, 30]);
+memory.shrink(handler);
+
+console.log(memory.length(handler)); // 4
+console.log(memory.occupied(handler)); // 3
+```
+
+The resulting capacity is the smallest power of two that accommodates the occupied elements.
 
 ---
 
@@ -522,6 +585,29 @@ Finds the first occurrence of a value, searching in ascending index order. Only 
 
 Finds the last occurrence of a value, searching in descending index order. Only occupied elements are searched; unused block capacity is ignored.
 
+Both search methods return the matching zero-based index, or `-1` when the value is not found. They throw `Error` if the handler is invalid or corrupted.
+
+## `withView(...args)`
+
+Borrows one or more blocks for the duration of a synchronous callback. Supply one or more block handlers followed by the callback; the callback receives the corresponding typed-array views in handler order. The full borrowing model, examples, and restrictions are described in [Memory Borrowing](#memory-borrowing).
+
+### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `...args` | `number[] + callback` | One or more block handlers followed by the callback. |
+
+### Return
+
+The value returned by the callback.
+
+### Exceptions
+
+* `TypeError` — no handler is provided or the final argument is not a function.
+* `Error` — a handler is invalid, duplicated, or already borrowed.
+
+---
+
 ## `get(handler, index)`
 
 Gets the element at the specified index.
@@ -723,11 +809,6 @@ const count = memory.occupied(handler);
 
 ## `length(handler)`
 
-### `isFull(handler)`
-
-Returns `true` when the number of occupied elements equals the block's physical capacity; otherwise returns `false`.
-
-
 Returns the total quantity of available physical slots.
 
 Capacity is independent of occupancy:
@@ -741,6 +822,22 @@ length >= occupied
 const capacity = memory.length(handler);
 
 ```
+
+---
+
+## `isFull(handler)`
+
+Returns `true` when the number of occupied elements equals the block's physical capacity; otherwise returns `false`.
+
+### Return
+
+```text
+boolean
+```
+
+### Exceptions
+
+`Error` — invalid or corrupted handler.
 
 ---
 
@@ -1256,25 +1353,30 @@ Generation participates in cookie validation. Consequently, an invalid handler o
 | Instantiation | `constructor()` | `Balloc`|
 | Lifecycle | `alloc()` | `number`|
 | Lifecycle | `realloc()` | `void`|
+| Lifecycle | `shrink()` | `void`|
 | Lifecycle | `free()` | `void`|
 | Lifecycle | `gc()` | `void`|
 | Stack | `push()` | `boolean`|
-| Stack | `pop()` | `number` |
-| Stack | `peek()` | `number` |
+| Stack | `pop()` | `number \| undefined` |
+| Stack | `peek()` | `number \| undefined` |
 | Queue | `nudge()` | `boolean`|
-| Queue | `pull()` | `number` |
-| Queue | `head()` | `number` |
+| Queue | `pull()` | `number \| undefined` |
+| Queue | `head()` | `number \| undefined` |
 | Access | `has()` | `boolean`|
-| Access | `get()` | `number` |
+| Access | `get()` | `number \| undefined` |
 | Access | `set()` | `boolean`|
 | Access | `clear()` | `void`|
 | Access | `fill()` | `void`|
 | Access | `fillAll()` | `void`|
 | Access | `put()` | `void`|
 | Access | `pick()` | `TypedArray`|
+| Access | `indexOf()` | `number`|
+| Access | `lastIndexOf()` | `number`|
+| Access | `withView()` | `any`|
 | Capacity | `byteSize()` | `number`|
 | Capacity | `occupied()` | `number`|
 | Capacity | `length()` | `number`|
+| Capacity | `isFull()` | `boolean`|
 | Blocks | `copy()` | `Uint8Array`|
 | Blocks | `copyWithin()` | `Uint8Array`|
 | Blocks | `append()` | `number`|

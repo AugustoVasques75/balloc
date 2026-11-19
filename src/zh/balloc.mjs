@@ -248,7 +248,7 @@ export default class Balloc {
      * @throws {AggregateError} 如果容量已达到支持的最大限制。
      */
     realloc(handler) {
-        
+
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
         const headerAddress = handler >>> 0;
         const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
@@ -293,19 +293,46 @@ export default class Balloc {
         this.recyclePush(oldBlockSize, dataAddress);
     }
 
-     /**
-     * 释放内存块。
+    /**
+     * 将内存块缩小到能够容纳其已占用元素的最小 2 的幂次容量，
+     * 同时保留其地址和句柄。
      *
-     * 通过将块标头的 cookie 清零使其失效，并记录其地址以便后续复用。
-     * 数据区域也会被交还给回收系统，除非该块刚好位于 `dataBus` 的顶部；
-     * 在这种情况下，`dataPointer` 会直接回滚，从而消除该区域而无需在回收列表中创建条目。
+     * 如果该块位于 dataBus 的顶部，则向后回退 dataPointer。
+     * 否则，将释放的尾部区域拆分为若干个容量为 2 的幂次的区域，
+     * 并将每个区域归还到回收列表。
      *
-     * @param {number} handler - 要释放的块的句柄。
+     * @param {number} handler - 要缩小的内存块的句柄。
      * @returns {void}
-     * @throws {Error} 如果句柄无效、已损坏，或者块正通过 withView() 被借用。
+     * @throws {Error} 如果句柄无效、已损坏，或该块正通过 withView() 被借用。
      */
+    shrink(handler) {
+        const meta = this.extractMetadata(handler, this.metadata);
+        this.assertNotBorrowed(meta.headerAddress);
+
+        const newCapacity = Math.max(1, 32 - Math.clz32(Math.max(2, meta.occupied) - 1));
+        if (newCapacity >= meta.capacityExponent) return;
+
+        const oldBlockSize = meta.byteCapacity;
+        const newBlockSize = (2 ** newCapacity) * this.wordSize;
+        const oldEnd = meta.dataAddress + oldBlockSize;
+
+        this.controlAdapter.setUint8(meta.headerAddress + CAPACITY_OFFSET, newCapacity);
+
+        if (oldEnd === this.dataPointer) {
+            this.dataPointer = meta.dataAddress + newBlockSize;
+            return;
+        }
+
+        let address = meta.dataAddress + newBlockSize;
+        for (let exponent = newCapacity; exponent < meta.capacityExponent; exponent++) {
+            const segmentSize = (2 ** exponent) * this.wordSize;
+            this.recyclePush(segmentSize, address);
+            address += segmentSize;
+        }
+    }
+
     free(handler) {
-        
+
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
         const headerAddress = handler >>> 0;
         const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
@@ -499,7 +526,6 @@ export default class Balloc {
      * 该元素被写入最后一个占用元素之后的第一个空闲位置。
      * 只有在容量范围内有可用空间时，块的占用数才会递增。
      *
-     * @param {number} handler - 块句柄。
      * @param {number} value - 要插入的值。
      * @returns {boolean} 如果值已成功插入则为 `true`；如果块已无可用空间则为 `false`。
      * @throws {Error} 如果句柄无效、已损坏，或者块正通过 withView() 被借用。
@@ -884,27 +910,45 @@ export default class Balloc {
      * 此限制同样适用于从原始视图派生的子视图（subviews）。
      *
      * @param {number} handler - 块句柄。
-     * @param {Function} callback - 接收共享 TypedArray 的函数。
+     * @param {...(number|Function)} args - 一个或多个块句柄，最后一个参数为回调函数。
      * @returns {*} 回调函数产生 返回值。
-     * @throws {TypeError} 如果回调不是函数。
-     * @throws {Error} 如果句柄无效或已被借用。
+     * @throws {TypeError} 如果未提供句柄或回调不是函数。
+     * @throws {Error} 如果任一句柄无效、重复或已被借用。
      */
-    withView(handler, callback) {
+    withView(...args) {
+        if (args.length < 2) throw new TypeError("At least one handler and one callback are required");
+
+        const callback = args.pop();
         if (typeof callback !== "function") throw new TypeError("callback must be a function");
 
-        const meta = this.extractMetadata(handler, this.metadata);
-        const flagsAddress = meta.headerAddress + FLAGS_OFFSET;
-        const flags = this.controlBus[flagsAddress];
+        const handlers = args;
+        const metadata = handlers.map(handler => this.extractMetadata(handler, {}));
+        const headers = metadata.map(meta => meta.headerAddress);
 
-        if (flags & VIEW_LOCK) throw new Error("Block is already borrowed");
+        if (new Set(headers).size !== headers.length) throw new Error("Duplicate handler");
 
-        this.controlBus[flagsAddress] = flags | VIEW_LOCK;
+        const flags = headers.map(header => this.controlBus[header + FLAGS_OFFSET]);
+
+        if (flags.some(flag => flag & VIEW_LOCK)) throw new Error("Block is already borrowed");
+
+        let acquiredCount = 0;
 
         try {
-            const rawAddress = meta.dataAddress >>> this.wordShift;
-            return callback(this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied));
+            for (const header of headers) {
+                this.controlBus[header + FLAGS_OFFSET] |= VIEW_LOCK;
+                acquiredCount++;
+            }
+
+            const views = metadata.map(meta => {
+                const rawAddress = meta.dataAddress >>> this.wordShift;
+                return this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied);
+            });
+
+            return callback(...views);
         } finally {
-            this.controlBus[flagsAddress] &= ~VIEW_LOCK;
+            for (let i = 0; i < acquiredCount; i++) {
+                this.controlBus[headers[i] + FLAGS_OFFSET] &= ~VIEW_LOCK;
+            }
         }
     }
 
@@ -967,24 +1011,24 @@ export default class Balloc {
 
     // ========== 块间操作 (Operations between blocks)=============
 
-     /**
-     * 将占用元素从一个块复制到另一个块。
-     *
-     * 复制从 `source` 的第一个元素和 `destination` 的第一个槽位开始。
-     * 实际复制的数量受源中占用元素数量、目标物理容量以及 `slots` 中指定限制的约束。
-     *
-     * 必要时会提高目标的占用数，以涵盖复制的元素。目标的容量保持不变。
-     *
-     * 该操作在 `dataBus` 上使用 `Uint8Array.prototype.copyWithin()`，
-     * 因此返回值为代表数据总线的 `Uint8Array` 本身。
-     *
-     * @param {number} source - 源块句柄。
-     * @param {number} destination - 目标块句柄。
-     * @param {number} [slots=UNKNOWN] - 要复制的最大元素数。
-     * `UNKNOWN` 代表哨兵值，用于不施加额外的限制。
-     * @returns {Uint8Array} 操作后的 `dataBus`。
-     * @throws {Error} 如果句柄无效、已损坏，或者目标块正通过 withView() 被借用。
-     */
+    /**
+    * 将占用元素从一个块复制到另一个块。
+    *
+    * 复制从 `source` 的第一个元素和 `destination` 的第一个槽位开始。
+    * 实际复制的数量受源中占用元素数量、目标物理容量以及 `slots` 中指定限制的约束。
+    *
+    * 必要时会提高目标的占用数，以涵盖复制的元素。目标的容量保持不变。
+    *
+    * 该操作在 `dataBus` 上使用 `Uint8Array.prototype.copyWithin()`，
+    * 因此返回值为代表数据总线的 `Uint8Array` 本身。
+    *
+    * @param {number} source - 源块句柄。
+    * @param {number} destination - 目标块句柄。
+    * @param {number} [slots=UNKNOWN] - 要复制的最大元素数。
+    * `UNKNOWN` 代表哨兵值，用于不施加额外的限制。
+    * @returns {Uint8Array} 操作后的 `dataBus`。
+    * @throws {Error} 如果句柄无效、已损坏，或者目标块正通过 withView() 被借用。
+    */
     copy(source, destination, slots = UNKNOWN) {
         /** @type {Metadata} */
         const metaA = {};

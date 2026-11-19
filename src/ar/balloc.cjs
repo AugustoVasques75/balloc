@@ -216,18 +216,37 @@ var Balloc = class {
     this.recyclePush(oldBlockSize, dataAddress);
   }
   /**
-  * يحرر كتلة ذاكرة.
-  *
-  * يتم إبطال ترويسة الكتلة عن طريق تصفير ملف تعريف الارتباط الخاص بها وتسجيل
-  * عنوانها لإعادة استخدامها لاحقاً. كما يتم إرجاع منطقة البيانات
-  * إلى نظام إعادة التدوير، إلا إذا كانت الكتلة في قمة `dataBus` تماماً؛
-  * في هذه الحالة، يتم التراجع عن `dataPointer` ببساطة، مما يلغي المنطقة دون إنشاء إدخال في قائمة إعادة التدوير.
-  *
-  * @param {number} handler - مقبض الكتلة المراد تحريرها.
-  * @returns {void}
-  * @throws {Error} إذا كان المقبض غير صالح، أو تالفاً، أو إذا كانت الكتلة
-  * معارة بواسطة withView().
-  */
+   * يقلّص الكتلة إلى أصغر سعة تمثل قوة للعدد اثنين وتكفي لاحتواء
+   * العناصر المشغولة فيها، مع الحفاظ على عنوانها ومعرّفها (handler).
+   *
+   * إذا كانت الكتلة في أعلى dataBus، يُرجع dataPointer إلى الخلف.
+   * وإلا، يُقسّم الجزء الطرفي المُحرر إلى مناطق ذات أحجام تمثل قوى للعدد
+   * اثنين، ثم تُعاد كل منطقة إلى قائمة إعادة التدوير.
+   *
+   * @param {number} handler - معرّف الكتلة المراد تقليصها.
+   * @returns {void}
+   * @throws {Error} إذا كان المعرّف غير صالح أو تالفاً أو مستعاراً عبر withView().
+   */
+  shrink(handler) {
+    const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
+    const newCapacity = Math.max(1, 32 - Math.clz32(Math.max(2, meta.occupied) - 1));
+    if (newCapacity >= meta.capacityExponent) return;
+    const oldBlockSize = meta.byteCapacity;
+    const newBlockSize = 2 ** newCapacity * this.wordSize;
+    const oldEnd = meta.dataAddress + oldBlockSize;
+    this.controlAdapter.setUint8(meta.headerAddress + CAPACITY_OFFSET, newCapacity);
+    if (oldEnd === this.dataPointer) {
+      this.dataPointer = meta.dataAddress + newBlockSize;
+      return;
+    }
+    let address = meta.dataAddress + newBlockSize;
+    for (let exponent = newCapacity; exponent < meta.capacityExponent; exponent++) {
+      const segmentSize = 2 ** exponent * this.wordSize;
+      this.recyclePush(segmentSize, address);
+      address += segmentSize;
+    }
+  }
   free(handler) {
     const generation = handler / ROTATE_32BITS & CLAMP_11BITS;
     const headerAddress = handler >>> 0;
@@ -401,7 +420,6 @@ var Balloc = class {
    * مشغول. يتم زيادة إشغال الكتلة فقط عندما تكون هناك مساحة
    * متاحة ضمن سعتها.
    *
-   * @param {number} handler - مقبض الكتلة.
    * @param {number} value - القيمة المراد إدراجها.
    * @returns {boolean} `true` إذا تم إدراج القيمة؛ `false` إذا كانت الكتلة
    * بلا مساحة متاحة.
@@ -759,23 +777,36 @@ var Balloc = class {
    * على العروض الفرعية (Subviews) المشتقة من العرض الأصلي.
    *
    * @param {number} handler - مقبض الكتلة.
-   * @param {Function} callback - الدالة التي تتلقى TypedArray المشترك.
+   * @param {...(number|Function)} args - مقبض كتلة واحد أو أكثر، تليها دالة رد الاتصال.
    * @returns {*} القيمة المُرجعة بواسطة دالة رد الاتصال.
-   * @throws {TypeError} إذا لم تكن دالة رد الاتصال دالة.
-   * @throws {Error} إذا كان المقبض غير صالح أو معاراً مسبقاً.
+   * @throws {TypeError} إذا لم يتم توفير أي مقبض أو لم تكن دالة رد الاتصال دالة.
+   * @throws {Error} إذا كان أي مقبض غير صالح أو مكرراً أو معاراً مسبقاً.
    */
-  withView(handler, callback) {
+  withView(...args) {
+    if (args.length < 2) throw new TypeError("At least one handler and one callback are required");
+    const callback = args.pop();
     if (typeof callback !== "function") throw new TypeError("callback must be a function");
-    const meta = this.extractMetadata(handler, this.metadata);
-    const flagsAddress = meta.headerAddress + FLAGS_OFFSET;
-    const flags = this.controlBus[flagsAddress];
-    if (flags & VIEW_LOCK) throw new Error("Block is already borrowed");
-    this.controlBus[flagsAddress] = flags | VIEW_LOCK;
+    const handlers = args;
+    const metadata = handlers.map((handler) => this.extractMetadata(handler, {}));
+    const headers = metadata.map((meta) => meta.headerAddress);
+    if (new Set(headers).size !== headers.length) throw new Error("Duplicate handler");
+    const flags = headers.map((header) => this.controlBus[header + FLAGS_OFFSET]);
+    if (flags.some((flag) => flag & VIEW_LOCK)) throw new Error("Block is already borrowed");
+    let acquiredCount = 0;
     try {
-      const rawAddress = meta.dataAddress >>> this.wordShift;
-      return callback(this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied));
+      for (const header of headers) {
+        this.controlBus[header + FLAGS_OFFSET] |= VIEW_LOCK;
+        acquiredCount++;
+      }
+      const views = metadata.map((meta) => {
+        const rawAddress = meta.dataAddress >>> this.wordShift;
+        return this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied);
+      });
+      return callback(...views);
     } finally {
-      this.controlBus[flagsAddress] &= ~VIEW_LOCK;
+      for (let i = 0; i < acquiredCount; i++) {
+        this.controlBus[headers[i] + FLAGS_OFFSET] &= ~VIEW_LOCK;
+      }
     }
   }
   // ======== السعة بالفتحات (CAPACITY IN SLOTS) ==========

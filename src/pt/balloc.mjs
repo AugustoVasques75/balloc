@@ -260,7 +260,7 @@ export default class Balloc {
      * máximo suportado.
      */
     realloc(handler) {
-        
+
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
         const headerAddress = handler >>> 0;
         const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
@@ -305,23 +305,47 @@ export default class Balloc {
         this.recyclePush(oldBlockSize, dataAddress);
     }
 
-     /**
-     * Libera um bloco de memória.
+    /**
+     * Reduz um bloco à menor capacidade em potência de dois capaz de comportar
+     * seus elementos ocupados, preservando seu endereço e handler.
      *
-     * O header do bloco é invalidado pelo zeramento de seu cookie e seu
-     * endereço é registrado para posterior reutilização. A região de dados
-     * também é devolvida ao sistema de reciclagem, exceto quando o bloco está
-     * exatamente no topo do `dataBus`; nesse caso, o `dataPointer` é simplesmente
-     * retrocedido, eliminando a região sem criar uma entrada na lista de
-     * reciclagem.
+     * Se o bloco estiver no topo do dataBus, dataPointer será recuado.
+     * Caso contrário, a cauda liberada será dividida em regiões de potências
+     * de dois, e cada região será devolvida à lista de reciclagem.
      *
-     * @param {number} handler - Handler do bloco a ser liberado.
+     * @param {number} handler - Handler do bloco a ser reduzido.
      * @returns {void}
-     * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco
-     * estiver emprestado por withView().
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou estiver
+     * emprestado por withView().
      */
+    shrink(handler) {
+        const meta = this.extractMetadata(handler, this.metadata);
+        this.assertNotBorrowed(meta.headerAddress);
+
+        const newCapacity = Math.max(1, 32 - Math.clz32(Math.max(2, meta.occupied) - 1));
+        if (newCapacity >= meta.capacityExponent) return;
+
+        const oldBlockSize = meta.byteCapacity;
+        const newBlockSize = (2 ** newCapacity) * this.wordSize;
+        const oldEnd = meta.dataAddress + oldBlockSize;
+
+        this.controlAdapter.setUint8(meta.headerAddress + CAPACITY_OFFSET, newCapacity);
+
+        if (oldEnd === this.dataPointer) {
+            this.dataPointer = meta.dataAddress + newBlockSize;
+            return;
+        }
+
+        let address = meta.dataAddress + newBlockSize;
+        for (let exponent = newCapacity; exponent < meta.capacityExponent; exponent++) {
+            const segmentSize = (2 ** exponent) * this.wordSize;
+            this.recyclePush(segmentSize, address);
+            address += segmentSize;
+        }
+    }
+
     free(handler) {
-        
+
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
         const headerAddress = handler >>> 0;
         const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
@@ -952,28 +976,45 @@ export default class Balloc {
      * retornada ou utilizada após o término do callback. Essa restrição
      * também se aplica a subviews derivadas da view original.
      *
-     * @param {number} handler - Handler do bloco.
-     * @param {Function} callback - Função que recebe a TypedArray compartilhada.
+     * @param {...number|Function} args - Um ou mais handlers, seguidos pelo callback.
      * @returns {*} Retorno produzido pelo callback.
-     * @throws {TypeError} Se callback não for uma função.
-     * @throws {Error} Se o handler for inválido ou já estiver emprestado.
+     * @throws {TypeError} Se não houver handler ou se o callback não for uma função.
+     * @throws {Error} Se algum handler for inválido, duplicado ou já estiver emprestado.
      */
-    withView(handler, callback) {
+    withView(...args) {
+        if (args.length < 2) throw new TypeError("At least one handler and one callback are required");
+
+        const callback = args.pop();
         if (typeof callback !== "function") throw new TypeError("callback must be a function");
 
-        const meta = this.extractMetadata(handler, this.metadata);
-        const flagsAddress = meta.headerAddress + FLAGS_OFFSET;
-        const flags = this.controlBus[flagsAddress];
+        const handlers = args;
+        const metadata = handlers.map(handler => this.extractMetadata(handler, {}));
+        const headers = metadata.map(meta => meta.headerAddress);
 
-        if (flags & VIEW_LOCK) throw new Error("Block is already borrowed");
+        if (new Set(headers).size !== headers.length) throw new Error("Duplicate handler");
 
-        this.controlBus[flagsAddress] = flags | VIEW_LOCK;
+        const flags = headers.map(header => this.controlBus[header + FLAGS_OFFSET]);
+
+        if (flags.some(flag => flag & VIEW_LOCK)) throw new Error("Block is already borrowed");
+
+        let acquiredCount = 0;
 
         try {
-            const rawAddress = meta.dataAddress >>> this.wordShift;
-            return callback(this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied));
+            for (const header of headers) {
+                this.controlBus[header + FLAGS_OFFSET] |= VIEW_LOCK;
+                acquiredCount++;
+            }
+
+            const views = metadata.map(meta => {
+                const rawAddress = meta.dataAddress >>> this.wordShift;
+                return this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied);
+            });
+
+            return callback(...views);
         } finally {
-            this.controlBus[flagsAddress] &= ~VIEW_LOCK;
+            for (let i = 0; i < acquiredCount; i++) {
+                this.controlBus[headers[i] + FLAGS_OFFSET] &= ~VIEW_LOCK;
+            }
         }
     }
 
@@ -1041,30 +1082,30 @@ export default class Balloc {
 
     // ==========Operações entre blocos=============
 
-     /**
-     * Copia elementos ocupados de um bloco para outro.
-     *
-     * A cópia começa no primeiro elemento de `source` e no primeiro slot de
-     * `destination`. A quantidade efetivamente copiada é limitada pelo número de
-     * elementos ocupados na origem, pela capacidade física do destino e pelo
-     * limite especificado em `slots`.
-     *
-     * A ocupação do destino é elevada, quando necessário, para abranger os
-     * elementos copiados. A capacidade do destino não é alterada.
-     *
-     * A operação utiliza `Uint8Array.prototype.copyWithin()` sobre o `dataBus`,
-     * portanto o retorno é o próprio `Uint8Array` que representa o barramento
-     * de dados.
-     *
-     * @param {number} source - Handler do bloco de origem.
-     * @param {number} destination - Handler do bloco de destino.
-     * @param {number} [slots=UNKNOWN] - Número máximo de elementos a copiar.
-     * `UNKNOWN` representa o valor sentinela utilizado para não impor um
-     * limite adicional.
-     * @returns {Uint8Array} O `dataBus` após a operação.
-     * @throws {Error} Se os handlers forem inválidos, estiverem corrompidos
-     * ou o bloco de destino estiver emprestado por withView().
-     */
+    /**
+    * Copia elementos ocupados de um bloco para outro.
+    *
+    * A cópia começa no primeiro elemento de `source` e no primeiro slot de
+    * `destination`. A quantidade efetivamente copiada é limitada pelo número de
+    * elementos ocupados na origem, pela capacidade física do destino e pelo
+    * limite especificado em `slots`.
+    *
+    * A ocupação do destino é elevada, quando necessário, para abranger os
+    * elementos copiados. A capacidade do destino não é alterada.
+    *
+    * A operação utiliza `Uint8Array.prototype.copyWithin()` sobre o `dataBus`,
+    * portanto o retorno é o próprio `Uint8Array` que representa o barramento
+    * de dados.
+    *
+    * @param {number} source - Handler do bloco de origem.
+    * @param {number} destination - Handler do bloco de destino.
+    * @param {number} [slots=UNKNOWN] - Número máximo de elementos a copiar.
+    * `UNKNOWN` representa o valor sentinela utilizado para não impor um
+    * limite adicional.
+    * @returns {Uint8Array} O `dataBus` após a operação.
+    * @throws {Error} Se os handlers forem inválidos, estiverem corrompidos
+    * ou o bloco de destino estiver emprestado por withView().
+    */
     copy(source, destination, slots = UNKNOWN) {
         /** @type {Metadata} */
         const metaA = {};

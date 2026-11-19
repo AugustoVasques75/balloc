@@ -207,16 +207,37 @@ var Balloc = class {
     this.recyclePush(oldBlockSize, dataAddress);
   }
   /**
-  * 释放内存块。
-  *
-  * 通过将块标头的 cookie 清零使其失效，并记录其地址以便后续复用。
-  * 数据区域也会被交还给回收系统，除非该块刚好位于 `dataBus` 的顶部；
-  * 在这种情况下，`dataPointer` 会直接回滚，从而消除该区域而无需在回收列表中创建条目。
-  *
-  * @param {number} handler - 要释放的块的句柄。
-  * @returns {void}
-  * @throws {Error} 如果句柄无效、已损坏，或者块正通过 withView() 被借用。
-  */
+   * 将内存块缩小到能够容纳其已占用元素的最小 2 的幂次容量，
+   * 同时保留其地址和句柄。
+   *
+   * 如果该块位于 dataBus 的顶部，则向后回退 dataPointer。
+   * 否则，将释放的尾部区域拆分为若干个容量为 2 的幂次的区域，
+   * 并将每个区域归还到回收列表。
+   *
+   * @param {number} handler - 要缩小的内存块的句柄。
+   * @returns {void}
+   * @throws {Error} 如果句柄无效、已损坏，或该块正通过 withView() 被借用。
+   */
+  shrink(handler) {
+    const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
+    const newCapacity = Math.max(1, 32 - Math.clz32(Math.max(2, meta.occupied) - 1));
+    if (newCapacity >= meta.capacityExponent) return;
+    const oldBlockSize = meta.byteCapacity;
+    const newBlockSize = 2 ** newCapacity * this.wordSize;
+    const oldEnd = meta.dataAddress + oldBlockSize;
+    this.controlAdapter.setUint8(meta.headerAddress + CAPACITY_OFFSET, newCapacity);
+    if (oldEnd === this.dataPointer) {
+      this.dataPointer = meta.dataAddress + newBlockSize;
+      return;
+    }
+    let address = meta.dataAddress + newBlockSize;
+    for (let exponent = newCapacity; exponent < meta.capacityExponent; exponent++) {
+      const segmentSize = 2 ** exponent * this.wordSize;
+      this.recyclePush(segmentSize, address);
+      address += segmentSize;
+    }
+  }
   free(handler) {
     const generation = handler / ROTATE_32BITS & CLAMP_11BITS;
     const headerAddress = handler >>> 0;
@@ -382,7 +403,6 @@ var Balloc = class {
    * 该元素被写入最后一个占用元素之后的第一个空闲位置。
    * 只有在容量范围内有可用空间时，块的占用数才会递增。
    *
-   * @param {number} handler - 块句柄。
    * @param {number} value - 要插入的值。
    * @returns {boolean} 如果值已成功插入则为 `true`；如果块已无可用空间则为 `false`。
    * @throws {Error} 如果句柄无效、已损坏，或者块正通过 withView() 被借用。
@@ -704,23 +724,36 @@ var Balloc = class {
    * 此限制同样适用于从原始视图派生的子视图（subviews）。
    *
    * @param {number} handler - 块句柄。
-   * @param {Function} callback - 接收共享 TypedArray 的函数。
+   * @param {...(number|Function)} args - 一个或多个块句柄，最后一个参数为回调函数。
    * @returns {*} 回调函数产生 返回值。
-   * @throws {TypeError} 如果回调不是函数。
-   * @throws {Error} 如果句柄无效或已被借用。
+   * @throws {TypeError} 如果未提供句柄或回调不是函数。
+   * @throws {Error} 如果任一句柄无效、重复或已被借用。
    */
-  withView(handler, callback) {
+  withView(...args) {
+    if (args.length < 2) throw new TypeError("At least one handler and one callback are required");
+    const callback = args.pop();
     if (typeof callback !== "function") throw new TypeError("callback must be a function");
-    const meta = this.extractMetadata(handler, this.metadata);
-    const flagsAddress = meta.headerAddress + FLAGS_OFFSET;
-    const flags = this.controlBus[flagsAddress];
-    if (flags & VIEW_LOCK) throw new Error("Block is already borrowed");
-    this.controlBus[flagsAddress] = flags | VIEW_LOCK;
+    const handlers = args;
+    const metadata = handlers.map((handler) => this.extractMetadata(handler, {}));
+    const headers = metadata.map((meta) => meta.headerAddress);
+    if (new Set(headers).size !== headers.length) throw new Error("Duplicate handler");
+    const flags = headers.map((header) => this.controlBus[header + FLAGS_OFFSET]);
+    if (flags.some((flag) => flag & VIEW_LOCK)) throw new Error("Block is already borrowed");
+    let acquiredCount = 0;
     try {
-      const rawAddress = meta.dataAddress >>> this.wordShift;
-      return callback(this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied));
+      for (const header of headers) {
+        this.controlBus[header + FLAGS_OFFSET] |= VIEW_LOCK;
+        acquiredCount++;
+      }
+      const views = metadata.map((meta) => {
+        const rawAddress = meta.dataAddress >>> this.wordShift;
+        return this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied);
+      });
+      return callback(...views);
     } finally {
-      this.controlBus[flagsAddress] &= ~VIEW_LOCK;
+      for (let i = 0; i < acquiredCount; i++) {
+        this.controlBus[headers[i] + FLAGS_OFFSET] &= ~VIEW_LOCK;
+      }
     }
   }
   // ======== 槽位容量 (CAPACITY IN SLOTS) ==========

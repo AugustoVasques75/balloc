@@ -1,12 +1,12 @@
 您也可以获取其他语言版本的文档：
 | 语言 | 链接 |
 |---|---|
-| 阿拉伯语 | [API — balloc.ar.md](./docs/API%20—%20balloc.ar.md) |
-| 中文 | [API — balloc.zh.md](./docs/API%20—%20balloc.zh.md) |
-| 西班牙语 | [API — balloc.es.md](./docs/API%20—%20balloc.es.md) |
-| 英语 | [API — balloc.en.md](./docs/API%20—%20balloc.en.md) |
-| 日语 | [API — balloc.jp.md](./docs/API%20—%20balloc.jp.md) |
-| 葡萄牙语 | [API — balloc.pt.md](./docs/API%20—%20balloc.pt.md) |
+| 阿拉伯语 | [API — balloc.ar.md](./API%20—%20balloc.ar.md) |
+| 中文 | [API — balloc.zh.md](./API%20—%20balloc.zh.md) |
+| 西班牙语 | [API — balloc.es.md](./API%20—%20balloc.es.md) |
+| 英语 | [API — balloc.en.md](./API%20—%20balloc.en.md) |
+| 日语 | [API — balloc.jp.md](./API%20—%20balloc.jp.md) |
+| 葡萄牙语 | [API — balloc.pt.md](./API%20—%20balloc.pt.md) |
 
 # Balloc.js
 
@@ -23,11 +23,14 @@
 Balloc
 ├── 实例化
 │   └── constructor()
+│
 ├── 数据块生命周期
 │   ├── alloc()
 │   ├── realloc()
+│   ├── shrink()
 │   ├── free()
 │   └── gc()
+│
 ├── 线性结构
 │   ├── Stack
 │   │   ├── push()
@@ -37,6 +40,7 @@ Balloc
 │       ├── nudge()
 │       ├── pull()
 │       └── head()
+│
 ├── 内容访问
 │   ├── has()
 │   ├── get()
@@ -45,26 +49,35 @@ Balloc
 │   ├── fill()
 │   ├── fillAll()
 │   ├── put()
-│   └── pick()
+│   ├── pick()
+│   ├── indexOf()
+│   ├── lastIndexOf()
+│   └── withView()
+│
 ├── 容量与占用量
 │   ├── byteSize()
 │   ├── occupied()
-│   └── length()
+│   ├── length()
+│   └── isFull()
+│
 ├── 数据块间操作
 │   ├── copy()
 │   ├── copyWithin()
 │   ├── append()
 │   ├── clone()
 │   └── swap()
+│
 ├── 序列化
 │   ├── dump()
 │   └── load()
+│
 ├── 诊断与使用情况
 │   ├── recycleCount()
 │   ├── recycleBytes
 │   ├── allocatedBytes
 │   ├── unallocatedBytes
 │   └── fragmentationRatio
+│
 └── 内部使用
     ├── 回收
     │   ├── recyclePush()
@@ -111,28 +124,44 @@ byteSize(handler)  → 实际预留的物理字节数
 
 ---
 
-## 使用 `withView()` 借用内存
+## 内存借用
 
-`withView(handler, callback)` 会向回调函数传递一个直接映射到数据块已占用数据区域的类型化视图。该视图仅包含已占用的元素，不包含未使用的容量，并且不是副本：通过视图进行的修改会立即反映到数据块内容中。
+Balloc 支持对一个或多个数据块的已占用数据进行有作用域限制的零拷贝访问。回调函数接收直接映射到内部存储的类型化数组视图，因此无需分配副本即可读取和写入。
 
-借用过程是同步的。回调函数只接收该视图作为参数，`withView()` 会返回回调函数的返回值。锁在 `finally` 块中释放，即使回调函数抛出异常也不例外。
+借用仅在同步回调执行期间有效。回调运行时，Balloc 会锁定被借用的数据块，阻止可能使视图失效或改变数据块结构的操作。即使回调抛出异常，锁也会在 `finally` 块中释放。
+
+### 单个数据块
+
+传入一个 handler，后跟回调函数。回调接收的视图仅包含已占用元素，不包括未使用的容量。
 
 ```js
-const result = memory.withView(handler, view => {
+const count = memory.withView(handler, view => {
     view[0] = 42;
     return view.length;
 });
 ```
 
-回调结束后，不得保留或继续使用该视图。如果回调返回 Promise，借用会在 Promise 返回时立即结束，不会等到 Promise 完成。
+通过视图进行的写入会立即影响数据块，`withView()` 返回回调函数的返回值。
 
-### 借用期间的限制
+### 多个数据块
 
-对同一 handler 再次调用 `withView()` 会抛出 `Error`。如果以下操作会修改被借用的数据块，也会抛出 `Error`：`push()`、`pop()`、`nudge()`、`pull()`、`set()`、`clear()`、`fill()`、`fillAll()`、`put()`、`realloc()`、`free()` 和 `copyWithin()`。当被借用的数据块是目标块时，`copy()` 和 `append()` 会被阻止。如果任一数据块处于借用状态，`swap()` 也会被阻止。
+在回调函数之前传入两个或更多 handler。回调按相同顺序接收对应的视图：
 
-读取操作不受阻止。在 `copy()` 和 `append()` 中，源数据块可以处于借用状态，因为这些操作不会修改源数据块。
+```js
+memory.withView(source, target, (sourceView, targetView) => {
+    targetView.set(sourceView.subarray(0, targetView.length));
+});
+```
 
-只要存在活动视图，就会阻止替换或重新映射 `dataBus` 的操作，包括 `gc()` 以及由 `alloc()` 或 `realloc()` 触发的 `dataBus` 扩容。
+每个 handler 都必须有效、彼此不同且当前未被借用。Balloc 会在调用回调前获取所有锁，并在回调结束时释放。
+
+### 借用约束
+
+回调结束后，不得保留、返回或继续使用借用视图及其派生子视图。如果回调返回 Promise，借用会立即结束；因此所有视图访问都必须同步完成。
+
+数据块处于借用状态时，修改该数据块的操作会以 `Error` 拒绝，包括 `push()`、`pop()`、`nudge()`、`pull()`、`set()`、`clear()`、`fill()`、`fillAll()`、`put()`、`realloc()`、`shrink()`、`free()` 和 `copyWithin()`。如果被借用的数据块是目标块，则拒绝 `copy()` 和 `append()`；任一数据块被借用时，拒绝 `swap()`。只读操作仍可用，且 `copy()` 和 `append()` 允许源数据块处于借用状态。
+
+只要存在活动视图，就会拒绝替换或重新映射 `dataBus` 的操作，包括 `gc()` 以及由 `alloc()` 或 `realloc()` 触发的扩容。
 
 # 1. 实例化
 
@@ -279,6 +308,30 @@ memory.realloc(handler);
 ```
 
 该操作会将物理容量加倍，扩展到下一个 2 的幂。
+
+---
+
+## `shrink(handler)`
+
+将数据块的物理容量缩小到能够容纳当前已占用元素的最小受支持的 2 的幂。最小容量为两个元素。如果当前容量已经足够，则不执行任何操作。
+
+数据仍保留在原地址，且由于 header 保持不变，handler 仍然有效；只有容量字段会改变。如果数据块位于 `dataBus` 顶部，`dataPointer` 向后移动，释放空间直接归还给堆。否则，释放的尾部会被拆分为若干个 2 的幂大小的区域，并加入回收列表。
+
+`shrink()` 不会改变占用量，也不会移动元素。
+
+### 参数
+
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| `handler` | `number` | 数据块句柄。 |
+
+### 返回值
+
+`void`
+
+### 异常
+
+`Error` — handler 无效或已损坏，或者数据块正通过 `withView()` 处于借用状态。
 
 ---
 
@@ -479,11 +532,17 @@ boolean
 
 ## `indexOf(handler, searchElement, fromIndex = 0)`
 
-查找值首次出现的位置. The search proceeds in ascending index order and considers only occupied elements, ignoring unused block capacity.
+按索引升序查找值的首次出现位置。搜索范围仅限已占用元素，不包括未使用的物理容量。
 
 ## `lastIndexOf(handler, searchElement, fromIndex = -1)`
 
-查找值最后一次出现的位置. The search proceeds in descending index order and considers only occupied elements, ignoring unused block capacity.
+按索引降序查找值的最后出现位置。搜索范围仅限已占用元素，不包括未使用的物理容量。
+
+## `withView(...args)`
+
+在同步回调期间借用一个或多个数据块。传入一个或多个 handler，最后传入回调；回调按相同顺序接收视图。`...args` 的类型为 `number[] + callback`。返回值为回调函数的返回值。缺少 handler 或最后一个参数不是函数时抛出 `TypeError`；handler 无效、重复或已被借用时抛出 `Error`。
+
+---
 
 ## `get(handler, index)`
 
@@ -669,7 +728,7 @@ const count = memory.occupied(handler);
 
 ## `length(handler)`
 
-### `isFull(handler)`
+## `isFull(handler)`
 
 检查数据块是否已完全占用. 当已占用元素数量等于数据块的物理容量时返回 `true`，否则返回 `false`。
 
@@ -1159,6 +1218,7 @@ generation 参与 cookie 校验。因此，如果句柄无效或其 header 已�
 | 实例化 | `constructor()` | `Balloc` |
 | 生命周期 | `alloc()` | `number` |
 | 生命周期 | `realloc()` | `void` |
+| 生命周期 | `shrink()` | `void` |
 | 生命周期 | `free()` | `void` |
 | 生命周期 | `gc()` | `void` |
 | Stack | `push()` | `boolean` |
@@ -1168,6 +1228,9 @@ generation 参与 cookie 校验。因此，如果句柄无效或其 header 已�
 | Queue | `pull()` | `number \| undefined` |
 | Queue | `head()` | `number \| undefined` |
 | 访问 | `has()` | `boolean` |
+| 访问 | `indexOf()` | `number` |
+| 访问 | `lastIndexOf()` | `number` |
+| 访问 | `withView()` | 回调函数的返回值 |
 | 访问 | `get()` | `number \| undefined` |
 | 访问 | `set()` | `boolean` |
 | 访问 | `clear()` | `void` |
@@ -1178,6 +1241,7 @@ generation 参与 cookie 校验。因此，如果句柄无效或其 header 已�
 | 容量 | `byteSize()` | `number` |
 | 容量 | `occupied()` | `number` |
 | 容量 | `length()` | `number` |
+| 容量 | `isFull()` | `boolean` |
 | 数据块 | `copy()` | `Uint8Array` |
 | 数据块 | `copyWithin()` | `Uint8Array` |
 | 数据块 | `append()` | `number` |

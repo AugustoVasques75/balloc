@@ -128,21 +128,20 @@ export default class Balloc {
      */
     realloc(handler: number): void;
     /**
-    * Libera un bloque de memoria.
-    *
-    * La cabecera del bloque se invalida poniendo su cookie a cero y su
-    * dirección se registra para su posterior reutilización. La región de datos
-    * también se devuelve al sistema de reciclaje, excepto cuando el bloque está
-    * exactamente en la cima del `dataBus`; en ese caso, el puntero `dataPointer` simplemente
-    * retrocede, eliminando la región sin crear una entrada en la lista de
-    * reciclaje.
-    *
-    * @param {number} handler - Descriptor del bloque a liberar.
-    * @returns {void}
-    * @throws {Error} Si el descriptor no es válido, está corrupto o el bloque
-    * está prestado mediante `withView()`.
-    */
-    free(handler: number): void;
+     * Reduce un bloque a la menor capacidad potencia de dos que pueda contener
+     * sus elementos ocupados, preservando su dirección y su handler.
+     *
+     * Si el bloque está en la parte superior de dataBus, dataPointer retrocede.
+     * De lo contrario, la cola liberada se divide en regiones de potencias
+     * de dos y cada región se devuelve a la lista de reciclaje.
+     *
+     * @param {number} handler - Handler del bloque que se va a reducir.
+     * @returns {void}
+     * @throws {Error} Si el handler no es válido, está dañado o está prestado
+     * mediante withView().
+     */
+    shrink(handler: number): void;
+    free(handler: any): void;
     /**
      * [USO INTERNO]
      * Inserta una región libre en la lista de reciclaje.
@@ -239,14 +238,13 @@ export default class Balloc {
      * ocupado. La ocupación del bloque se incrementa únicamente cuando hay espacio
      * disponible dentro de su capacidad.
      *
-     * @param {number} handler - Descriptor del bloque.
      * @param {number} value - Valor que se va a insertar.
      * @returns {boolean} `true` si el valor fue insertado; `false` si el bloque
      * ya no dispone de espacio libre.
      * @throws {Error} Si el descriptor no es válido, está corrupto o el bloque está prestado mediante `withView()`.
      *
      */
-    push(handler: number, value: number): boolean;
+    push(handler: any, value: number): boolean;
     /**
      * Elimina el último elemento ocupado del bloque y lo devuelve.
      *
@@ -481,12 +479,12 @@ export default class Balloc {
      * también se aplica a las subvistas derivadas de la vista original.
      *
      * @param {number} handler - Descriptor del bloque.
-     * @param {Function} callback - Función que recibe el TypedArray compartido.
+     * @param {...(number|Function)} args - Uno o más descriptores de bloque, seguidos de la retrollamada.
      * @returns {*} Valor devuelto por la retrollamada.
-     * @throws {TypeError} Si la retrollamada no es una función.
-     * @throws {Error} Si el descriptor no es válido o ya está prestado.
+     * @throws {TypeError} Si no se proporciona ningún descriptor o la retrollamada no es una función.
+     * @throws {Error} Si algún descriptor no es válido, está duplicado o ya está prestado.
      */
-    withView(handler: number, callback: Function): any;
+    withView(...args: (number | Function)[]): any;
     /**
      * Devuelve la capacidad física del bloque en bytes.
      *

@@ -218,20 +218,38 @@ var Balloc = class {
     this.recyclePush(oldBlockSize, dataAddress);
   }
   /**
-  * Libera un bloque de memoria.
-  *
-  * La cabecera del bloque se invalida poniendo su cookie a cero y su
-  * dirección se registra para su posterior reutilización. La región de datos
-  * también se devuelve al sistema de reciclaje, excepto cuando el bloque está
-  * exactamente en la cima del `dataBus`; en ese caso, el puntero `dataPointer` simplemente
-  * retrocede, eliminando la región sin crear una entrada en la lista de
-  * reciclaje.
-  *
-  * @param {number} handler - Descriptor del bloque a liberar.
-  * @returns {void}
-  * @throws {Error} Si el descriptor no es válido, está corrupto o el bloque
-  * está prestado mediante `withView()`.
-  */
+   * Reduce un bloque a la menor capacidad potencia de dos que pueda contener
+   * sus elementos ocupados, preservando su dirección y su handler.
+   *
+   * Si el bloque está en la parte superior de dataBus, dataPointer retrocede.
+   * De lo contrario, la cola liberada se divide en regiones de potencias
+   * de dos y cada región se devuelve a la lista de reciclaje.
+   *
+   * @param {number} handler - Handler del bloque que se va a reducir.
+   * @returns {void}
+   * @throws {Error} Si el handler no es válido, está dañado o está prestado
+   * mediante withView().
+   */
+  shrink(handler) {
+    const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
+    const newCapacity = Math.max(1, 32 - Math.clz32(Math.max(2, meta.occupied) - 1));
+    if (newCapacity >= meta.capacityExponent) return;
+    const oldBlockSize = meta.byteCapacity;
+    const newBlockSize = 2 ** newCapacity * this.wordSize;
+    const oldEnd = meta.dataAddress + oldBlockSize;
+    this.controlAdapter.setUint8(meta.headerAddress + CAPACITY_OFFSET, newCapacity);
+    if (oldEnd === this.dataPointer) {
+      this.dataPointer = meta.dataAddress + newBlockSize;
+      return;
+    }
+    let address = meta.dataAddress + newBlockSize;
+    for (let exponent = newCapacity; exponent < meta.capacityExponent; exponent++) {
+      const segmentSize = 2 ** exponent * this.wordSize;
+      this.recyclePush(segmentSize, address);
+      address += segmentSize;
+    }
+  }
   free(handler) {
     const generation = handler / ROTATE_32BITS & CLAMP_11BITS;
     const headerAddress = handler >>> 0;
@@ -412,7 +430,6 @@ var Balloc = class {
    * ocupado. La ocupación del bloque se incrementa únicamente cuando hay espacio
    * disponible dentro de su capacidad.
    *
-   * @param {number} handler - Descriptor del bloque.
    * @param {number} value - Valor que se va a insertar.
    * @returns {boolean} `true` si el valor fue insertado; `false` si el bloque
    * ya no dispone de espacio libre.
@@ -771,23 +788,36 @@ var Balloc = class {
    * también se aplica a las subvistas derivadas de la vista original.
    *
    * @param {number} handler - Descriptor del bloque.
-   * @param {Function} callback - Función que recibe el TypedArray compartido.
+   * @param {...(number|Function)} args - Uno o más descriptores de bloque, seguidos de la retrollamada.
    * @returns {*} Valor devuelto por la retrollamada.
-   * @throws {TypeError} Si la retrollamada no es una función.
-   * @throws {Error} Si el descriptor no es válido o ya está prestado.
+   * @throws {TypeError} Si no se proporciona ningún descriptor o la retrollamada no es una función.
+   * @throws {Error} Si algún descriptor no es válido, está duplicado o ya está prestado.
    */
-  withView(handler, callback) {
+  withView(...args) {
+    if (args.length < 2) throw new TypeError("At least one handler and one callback are required");
+    const callback = args.pop();
     if (typeof callback !== "function") throw new TypeError("callback must be a function");
-    const meta = this.extractMetadata(handler, this.metadata);
-    const flagsAddress = meta.headerAddress + FLAGS_OFFSET;
-    const flags = this.controlBus[flagsAddress];
-    if (flags & VIEW_LOCK) throw new Error("Block is already borrowed");
-    this.controlBus[flagsAddress] = flags | VIEW_LOCK;
+    const handlers = args;
+    const metadata = handlers.map((handler) => this.extractMetadata(handler, {}));
+    const headers = metadata.map((meta) => meta.headerAddress);
+    if (new Set(headers).size !== headers.length) throw new Error("Duplicate handler");
+    const flags = headers.map((header) => this.controlBus[header + FLAGS_OFFSET]);
+    if (flags.some((flag) => flag & VIEW_LOCK)) throw new Error("Block is already borrowed");
+    let acquiredCount = 0;
     try {
-      const rawAddress = meta.dataAddress >>> this.wordShift;
-      return callback(this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied));
+      for (const header of headers) {
+        this.controlBus[header + FLAGS_OFFSET] |= VIEW_LOCK;
+        acquiredCount++;
+      }
+      const views = metadata.map((meta) => {
+        const rawAddress = meta.dataAddress >>> this.wordShift;
+        return this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied);
+      });
+      return callback(...views);
     } finally {
-      this.controlBus[flagsAddress] &= ~VIEW_LOCK;
+      for (let i = 0; i < acquiredCount; i++) {
+        this.controlBus[headers[i] + FLAGS_OFFSET] &= ~VIEW_LOCK;
+      }
     }
   }
   // ======== CAPACIDAD EN RANURAS (CAPACITY IN SLOTS) ==========

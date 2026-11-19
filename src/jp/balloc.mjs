@@ -254,7 +254,7 @@ export default class Balloc {
      * @throws {AggregateError} 容量がサポートされている最大制限に達した場合。
      */
     realloc(handler) {
-        
+
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
         const headerAddress = handler >>> 0;
         const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
@@ -299,22 +299,47 @@ export default class Balloc {
         this.recyclePush(oldBlockSize, dataAddress);
     }
 
-     /**
-     * メモリブロックを解放します。
+    /**
+     * ブロックのアドレスとハンドルを維持したまま、使用中の要素を格納できる
+     * 最小の2のべき乗の容量まで縮小します。
      *
-     * ブロックのヘッダーはクッキーをゼロに設定することで無効化され、
-     * そのアドレスは後で再利用するために登録されます。ブロックが `dataBus` の
-     * 正確なトップにある場合を除き、データ領域も再利用システムに戻されます。
-     * トップにある場合は、`dataPointer` が単に巻き戻され、再利用リストに
-     * エントリを作成せずに領域が破棄されます。
+     * ブロックが dataBus のトップにある場合、dataPointer を後退させます。
+     * それ以外の場合、解放された末尾領域を2のべき乗の領域に分割し、
+     * 各領域を再利用リストに戻します。
      *
-     * @param {number} handler - 解放するブロックのハンドル。
+     * @param {number} handler - 縮小するブロックのハンドル。
      * @returns {void}
-     * @throws {Error} ハンドルが無効、破損している場合、またはブロックが
-     * withView() によって借用されている場合。
+     * @throws {Error} ハンドルが無効または破損している場合、あるいは
+     * withView() によってブロックが借用されている場合。
      */
+    shrink(handler) {
+        const meta = this.extractMetadata(handler, this.metadata);
+        this.assertNotBorrowed(meta.headerAddress);
+
+        const newCapacity = Math.max(1, 32 - Math.clz32(Math.max(2, meta.occupied) - 1));
+        if (newCapacity >= meta.capacityExponent) return;
+
+        const oldBlockSize = meta.byteCapacity;
+        const newBlockSize = (2 ** newCapacity) * this.wordSize;
+        const oldEnd = meta.dataAddress + oldBlockSize;
+
+        this.controlAdapter.setUint8(meta.headerAddress + CAPACITY_OFFSET, newCapacity);
+
+        if (oldEnd === this.dataPointer) {
+            this.dataPointer = meta.dataAddress + newBlockSize;
+            return;
+        }
+
+        let address = meta.dataAddress + newBlockSize;
+        for (let exponent = newCapacity; exponent < meta.capacityExponent; exponent++) {
+            const segmentSize = (2 ** exponent) * this.wordSize;
+            this.recyclePush(segmentSize, address);
+            address += segmentSize;
+        }
+    }
+
     free(handler) {
-        
+
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
         const headerAddress = handler >>> 0;
         const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
@@ -513,7 +538,6 @@ export default class Balloc {
      * 要素は、最後尾の占有要素の直後の最初の空き位置に書き込まれます。
      * ブロックの占有数は、その容量内に空きスペースが存在する場合にのみインクリメントされます。
      *
-     * @param {number} handler - ブロックのハンドル。
      * @param {number} value - 挿入する値。
      * @returns {boolean} 値が挿入された場合は `true`、ブロックに利用可能な
      * スペースがない場合は `false`。
@@ -912,27 +936,45 @@ export default class Balloc {
      * サブビューにも適用されます。
      *
      * @param {number} handler - ブロックのハンドル。
-     * @param {Function} callback - 共有された TypedArray を受け取る関数。
+     * @param {...(number|Function)} args - 1つ以上のブロックハンドルと、その後に続くコールバック。
      * @returns {*} コールバックによって生成された戻り値。
-     * @throws {TypeError} コールバックが関数ではない場合。
-     * @throws {Error} ハンドルが無効であるか、すでに借用されている場合。
+     * @throws {TypeError} ハンドルが指定されていない場合、またはコールバックが関数ではない場合。
+     * @throws {Error} いずれかのハンドルが無効、重複、または借用中の場合。
      */
-    withView(handler, callback) {
+    withView(...args) {
+        if (args.length < 2) throw new TypeError("At least one handler and one callback are required");
+
+        const callback = args.pop();
         if (typeof callback !== "function") throw new TypeError("callback must be a function");
 
-        const meta = this.extractMetadata(handler, this.metadata);
-        const flagsAddress = meta.headerAddress + FLAGS_OFFSET;
-        const flags = this.controlBus[flagsAddress];
+        const handlers = args;
+        const metadata = handlers.map(handler => this.extractMetadata(handler, {}));
+        const headers = metadata.map(meta => meta.headerAddress);
 
-        if (flags & VIEW_LOCK) throw new Error("Block is already borrowed");
+        if (new Set(headers).size !== headers.length) throw new Error("Duplicate handler");
 
-        this.controlBus[flagsAddress] = flags | VIEW_LOCK;
+        const flags = headers.map(header => this.controlBus[header + FLAGS_OFFSET]);
+
+        if (flags.some(flag => flag & VIEW_LOCK)) throw new Error("Block is already borrowed");
+
+        let acquiredCount = 0;
 
         try {
-            const rawAddress = meta.dataAddress >>> this.wordShift;
-            return callback(this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied));
+            for (const header of headers) {
+                this.controlBus[header + FLAGS_OFFSET] |= VIEW_LOCK;
+                acquiredCount++;
+            }
+
+            const views = metadata.map(meta => {
+                const rawAddress = meta.dataAddress >>> this.wordShift;
+                return this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied);
+            });
+
+            return callback(...views);
         } finally {
-            this.controlBus[flagsAddress] &= ~VIEW_LOCK;
+            for (let i = 0; i < acquiredCount; i++) {
+                this.controlBus[headers[i] + FLAGS_OFFSET] &= ~VIEW_LOCK;
+            }
         }
     }
 
@@ -997,27 +1039,27 @@ export default class Balloc {
 
     // ========== ブロック間の操作 (Operations between blocks)=============
 
-     /**
-     * あるブロックから別のブロックへ占有要素をコピーします。
-     *
-     * コピーは `source` の最初の要素と `destination` の最初のスロットから開始されます。
-     * 実際にコピーされる量は、ソース内の占有要素数、宛先の物理的容量、および
-     * `slots` で指定された制限によって制限されます。
-     *
-     * 必要に応じて、コピーされた要素をカバーするように宛先の占有数が引き上げられます。
-     * 宛先の容量は変更されません。
-     *
-     * この操作では `dataBus` に対して `Uint8Array.prototype.copyWithin()` を使用するため、
-     * 戻り値はデータバスを表す `Uint8Array` 自体になります。
-     *
-     * @param {number} source - コピー元ブロックのハンドル。
-     * @param {number} destination - コピー先ブロックのハンドル。
-     * @param {number} [slots=UNKNOWN] - コピーする最大要素数。
-     * `UNKNOWN` は、追加の制限を課さないために使用されるセンチネル値を表します。
-     * @returns {Uint8Array} 操作後の `dataBus`。
-     * @throws {Error} ハンドルが無効、破損している場合、
-     * またはコピー先ブロックが withView() によって借用されている場合。
-     */
+    /**
+    * あるブロックから別のブロックへ占有要素をコピーします。
+    *
+    * コピーは `source` の最初の要素と `destination` の最初のスロットから開始されます。
+    * 実際にコピーされる量は、ソース内の占有要素数、宛先の物理的容量、および
+    * `slots` で指定された制限によって制限されます。
+    *
+    * 必要に応じて、コピーされた要素をカバーするように宛先の占有数が引き上げられます。
+    * 宛先の容量は変更されません。
+    *
+    * この操作では `dataBus` に対して `Uint8Array.prototype.copyWithin()` を使用するため、
+    * 戻り値はデータバスを表す `Uint8Array` 自体になります。
+    *
+    * @param {number} source - コピー元ブロックのハンドル。
+    * @param {number} destination - コピー先ブロックのハンドル。
+    * @param {number} [slots=UNKNOWN] - コピーする最大要素数。
+    * `UNKNOWN` は、追加の制限を課さないために使用されるセンチネル値を表します。
+    * @returns {Uint8Array} 操作後の `dataBus`。
+    * @throws {Error} ハンドルが無効、破損している場合、
+    * またはコピー先ブロックが withView() によって借用されている場合。
+    */
     copy(source, destination, slots = UNKNOWN) {
         /** @type {Metadata} */
         const metaA = {};

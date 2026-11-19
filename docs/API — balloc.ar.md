@@ -15,27 +15,27 @@
 
 ```text
 Balloc
-├── Instanciamento
+├── التهيئة
 │   └── constructor()
 │
-├── Ciclo de vida dos blocos
+├── دورة حياة الكتل
 │   ├── alloc()
 │   ├── realloc()
+│   ├── shrink()
 │   ├── free()
 │   └── gc()
 │
-├── Estruturas lineares
+├── الهياكل الخطية
 │   ├── Stack
 │   │   ├── push()
 │   │   ├── pop()
 │   │   └── peek()
-│   │
 │   └── Queue
 │       ├── nudge()
 │       ├── pull()
 │       └── head()
 │
-├── Acesso ao conteúdo
+├── الوصول إلى المحتوى
 │   ├── has()
 │   ├── get()
 │   ├── set()
@@ -43,44 +43,45 @@ Balloc
 │   ├── fill()
 │   ├── fillAll()
 │   ├── put()
-│   └── pick()
+│   ├── pick()
+│   ├── indexOf()
+│   ├── lastIndexOf()
+│   └── withView()
 │
-├── Capacidade e ocupação
+├── السعة والإشغال
 │   ├── byteSize()
 │   ├── occupied()
-│   └── length()
+│   ├── length()
+│   └── isFull()
 │
-├── Operações entre blocos
+├── العمليات بين الكتل
 │   ├── copy()
 │   ├── copyWithin()
 │   ├── append()
-│   └── clone()
+│   ├── clone()
 │   └── swap()
 │
-├── Serialização
+├── التسلسل
 │   ├── dump()
 │   └── load()
 │
-├── Diagnóstico e utilização
+├── التشخيص والاستخدام
 │   ├── recycleCount()
 │   ├── recycleBytes
 │   ├── allocatedBytes
 │   ├── unallocatedBytes
 │   └── fragmentationRatio
 │
-└── Uso interno
-    ├── Reciclagem
+└── الاستخدام الداخلي
+    ├── إعادة التدوير
     │   ├── recyclePush()
     │   └── recyclePop()
-    │
-    ├── Escalonamento
+    ├── التوسعة
     │   ├── grow()
     │   └── headerGrow()
-    │
-    └── Utilitários
+    └── الأدوات
         ├── extractMetadata()
         └── bakeCookie()
-
 ```
 
 ---
@@ -120,28 +121,44 @@ byteSize(handler)  → bytes físicos reservados
 
 ---
 
-## استعارة الذاكرة باستخدام `withView()`
+## استعارة الذاكرة
 
-تمرر `withView(handler, callback)` إلى الدالة الراجعة عرضًا typed view مرتبطًا مباشرة بمنطقة البيانات المشغولة في الكتلة. يشمل العرض العناصر المشغولة فقط، ولا يشمل السعة غير المستخدمة، وليس نسخة؛ فالتغييرات التي تُجرى من خلاله تعدّل محتوى الكتلة مباشرة.
+يدعم Balloc الوصول المباشر دون نسخ إلى البيانات المشغولة في كتلة واحدة أو أكثر. تتلقى دالة الاستدعاء عروضًا من TypedArray مرتبطة بالتخزين الداخلي، مما يتيح القراءة والكتابة دون إنشاء نسخة.
 
-تتم الاستعارة بصورة متزامنة. تتلقى الدالة الراجعة العرض بوصفه وسيطها الوحيد، وتُعاد القيمة التي تنتجها من `withView()`. يُحرر القفل داخل كتلة `finally`، حتى إذا أطلقت الدالة الراجعة استثناءً.
+يقتصر الاستعارة على دالة متزامنة. أثناء تنفيذها، يقفل Balloc الكتل المستعارة ضد العمليات التي قد تُبطل العروض أو تغيّر بنية الكتل. يُحرر القفل داخل `finally` حتى عند حدوث استثناء.
+
+### كتلة واحدة
+
+مرّر معالجًا متبوعًا بدالة الاستدعاء. تتلقى الدالة عرضًا يحتوي على العناصر المشغولة فقط، دون السعة غير المستخدمة.
 
 ```js
-const result = memory.withView(handler, view => {
+const count = memory.withView(handler, view => {
     view[0] = 42;
     return view.length;
 });
 ```
 
-يجب عدم الاحتفاظ بالعرض أو استخدامه بعد انتهاء الدالة الراجعة. إذا أعادت الدالة Promise، تنتهي الاستعارة فور إعادة الـPromise، ولا يستمر القفل حتى اكتمالها.
+تؤثر الكتابة عبر العرض مباشرة في الكتلة، وتُعاد قيمة الدالة من `withView()`.
 
-### القيود أثناء الاستعارة
+### كتل متعددة
 
-تؤدي محاولة استدعاء `withView()` مرة ثانية للمقبض نفسه إلى إطلاق `Error`. كما تطلق العمليات التالية `Error` إذا كانت ستعدّل الكتلة المستعارة: `push()` و`pop()` و`nudge()` و`pull()` و`set()` و`clear()` و`fill()` و`fillAll()` و`put()` و`realloc()` و`free()` و`copyWithin()`. تُحظر `copy()` و`append()` عندما تكون الكتلة المستعارة هي الوجهة، كما تُحظر `swap()` إذا كانت أي من الكتلتين مستعارة.
+مرّر معالجين أو أكثر قبل دالة الاستدعاء. تتلقى الدالة عرضًا لكل معالج وبالترتيب نفسه:
 
-لا تُحظر عمليات القراءة. وفي `copy()` و`append()`، يمكن أن تكون كتلة المصدر مستعارة لأن هاتين العمليتين لا تعدّلان المصدر.
+```js
+memory.withView(source, target, (sourceView, targetView) => {
+    targetView.set(sourceView.subarray(0, targetView.length));
+});
+```
 
-تُحظر أيضًا العمليات التي تستبدل `dataBus` أو تعيد تعيين موضعه ما دامت أي مصفوفة نشطة، بما في ذلك `gc()` وتوسعة `dataBus` الناتجة عن `alloc()` أو `realloc()`.
+يجب أن يكون كل معالج صالحًا ومختلفًا وغير مستعار بالفعل. تُكتسب جميع الأقفال قبل استدعاء الدالة وتُحرر عند انتهائها.
+
+### قيود الاستعارة
+
+لا يجوز الاحتفاظ بالعرض أو بأي عرض فرعي مشتق منه أو إرجاعه أو استخدامه بعد انتهاء الدالة. إذا أعادت الدالة Promise، تنتهي الاستعارة فور إعادته؛ لذا يجب أن تكون جميع عمليات الوصول متزامنة.
+
+تُرفض بـ `Error` العمليات التي تعدّل كتلة مستعارة، ومنها `push()` و`pop()` و`nudge()` و`pull()` و`set()` و`clear()` و`fill()` و`fillAll()` و`put()` و`realloc()` و`shrink()` و`free()` و`copyWithin()`. تُرفض `copy()` و`append()` إذا كانت الكتلة المستعارة هي الوجهة، وتُرفض `swap()` إذا كانت أي من الكتلتين مستعارة. تظل عمليات القراءة متاحة، ويُسمح باستعارة المصدر في `copy()` و`append()`.
+
+تُرفض العمليات التي تستبدل `dataBus` أو تعيد تعيين خرائطه أثناء وجود أي عرض نشط، بما في ذلك `gc()` وتوسعة `dataBus` الناتجة عن `alloc()` أو `realloc()`.
 
 # 1. التهيئة (Instantiation)
 
@@ -318,6 +335,30 @@ memory.realloc(handler);
 ```
 
 تضاعف العملية السعة الفيزيائية، منتقلة إلى القوة التالية للعدد اثنين.
+
+---
+
+## `shrink(handler)`
+
+يقلل السعة الفيزيائية للكتلة إلى أصغر قوة مدعومة للعدد اثنين تكفي للعناصر المشغولة حاليًا. الحد الأدنى عنصران. إذا كانت السعة الحالية كافية، فلا يحدث تغيير.
+
+تبقى البيانات في العنوان نفسه ويظل المعالج صالحًا لأن الرأس محفوظ؛ ولا يتغير سوى حقل السعة. إذا كانت الكتلة في قمة `dataBus`، يتراجع `dataPointer` وتعود المساحة إلى الكومة. وإلا، يُقسّم الجزء المحرر إلى مناطق بقوى العدد اثنين وتضاف إلى قائمة إعادة التدوير.
+
+لا يغير `shrink()` الإشغال ولا ينقل العناصر.
+
+### المعاملات
+
+| المعامل | النوع | الوصف |
+|---|---|---|
+| `handler` | `number` | معالج الكتلة. |
+
+### القيمة المرجعة
+
+`void`
+
+### الاستثناءات
+
+`Error` — معالج غير صالح أو تالف، أو أن الكتلة مستعارة عبر `withView()`.
 
 ---
 
@@ -560,11 +601,17 @@ boolean
 
 ## `indexOf(handler, searchElement, fromIndex = 0)`
 
-البحث عن أول ظهور لقيمة. The search proceeds in ascending index order and considers only occupied elements, ignoring unused block capacity.
+يعثر على أول ظهور للقيمة بترتيب تصاعدي للفهرس. يقتصر البحث على العناصر المشغولة ويتجاهل السعة غير المستخدمة.
 
 ## `lastIndexOf(handler, searchElement, fromIndex = -1)`
 
-البحث عن آخر ظهور لقيمة. The search proceeds in descending index order and considers only occupied elements, ignoring unused block capacity.
+يعثر على آخر ظهور للقيمة بترتيب تنازلي للفهرس. يقتصر البحث على العناصر المشغولة ويتجاهل السعة غير المستخدمة.
+
+## `withView(...args)`
+
+يستعير كتلة واحدة أو أكثر أثناء دالة متزامنة. مرّر معالجًا أو أكثر ثم دالة الاستدعاء؛ وتتلقى العروض بالترتيب نفسه. المعامل `...args` هو `number[] + callback`. القيمة المرجعة هي قيمة الدالة. تُطلق `TypeError` عند غياب المعالج أو إذا لم تكن الوسيطة الأخيرة دالة، وتُطلق `Error` عند وجود معالج غير صالح أو مكرر أو مستعار.
+
+---
 
 ## `get(handler, index)`
 
@@ -781,7 +828,7 @@ const count = memory.occupied(handler);
 
 ## `length(handler)`
 
-### `isFull(handler)`
+## `isFull(handler)`
 
 التحقق مما إذا كانت الكتلة مشغولة بالكامل. تعيد `true` عندما يساوي عدد العناصر المشغولة السعة الفيزيائية للكتلة؛ وإلا فتعيد `false`.
 
@@ -1194,12 +1241,12 @@ UNKNOWN // 0xFFFFFFFF
 يمكنك أيضاً الحصول على هذا التوثيق مترجم إلى لغات أخرى:
 | اللغة | الرابط |
 |---|---|
-| العربية | [API — balloc.ar.md](./docs/API%20—%20balloc.ar.md) |
-| الصينية | [API — balloc.zh.md](./docs/API%20—%20balloc.zh.md) |
-| الإسبانية | [API — balloc.es.md](./docs/API%20—%20balloc.es.md) |
-| الإنجليزية | [API — balloc.en.md](./docs/API%20—%20balloc.en.md) |
-| اليابانية | [API — balloc.jp.md](./docs/API%20—%20balloc.jp.md) |
-| البرتغالية | [API — balloc.pt.md](./docs/API%20—%20balloc.pt.md) |
+| العربية | [API — balloc.ar.md](./API%20—%20balloc.ar.md) |
+| الصينية | [API — balloc.zh.md](./API%20—%20balloc.zh.md) |
+| الإسبانية | [API — balloc.es.md](./API%20—%20balloc.es.md) |
+| الإنجليزية | [API — balloc.en.md](./API%20—%20balloc.en.md) |
+| اليابانية | [API — balloc.jp.md](./API%20—%20balloc.jp.md) |
+| البرتغالية | [API — balloc.pt.md](./API%20—%20balloc.pt.md) |
 
 **خاص. لا تستخدم مباشرة.**
 
@@ -1357,6 +1404,7 @@ capacityBytes = 2 ** capacity × wordSize
 | التهيئة | `constructor()` | `Balloc`|
 | دورة الحياة | `alloc()` | `number`|
 | دورة الحياة | `realloc()` | `void`|
+| دورة الحياة | `shrink()` | `void`|
 | دورة الحياة | `free()` | `void`|
 | دورة الحياة | `gc()` | `void`|
 | المكدس | `push()` | `boolean`|
@@ -1366,6 +1414,9 @@ capacityBytes = 2 ** capacity × wordSize
 | الطابور | `pull()` | `number |
 | الطابور | `head()` | `number |
 | الوصول | `has()` | `boolean`|
+| الوصول | `indexOf()` | `number`|
+| الوصول | `lastIndexOf()` | `number`|
+| الوصول | `withView()` | قيمة callback المرجعة|
 | الوصول | `get()` | `number |
 | الوصول | `set()` | `boolean`|
 | الوصول | `clear()` | `void`|
@@ -1376,6 +1427,7 @@ capacityBytes = 2 ** capacity × wordSize
 | السعة | `byteSize()` | `number`|
 | السعة | `occupied()` | `number`|
 | السعة | `length()` | `number`|
+| السعة | `isFull()` | `boolean`|
 | الكتل | `copy()` | `Uint8Array`|
 | الكتل | `copyWithin()` | `Uint8Array`|
 | الكتل | `append()` | `number`|

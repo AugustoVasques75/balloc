@@ -278,6 +278,7 @@ alloc()
    ├── acesso / modificação
    │
    ├── realloc()
+   ├── shrink()
    │
    └── free()
           │
@@ -327,8 +328,10 @@ The following is a summary of these groups:
 | --- | --- |
 | `alloc()` | Allocate a block |
 | `realloc()` | Increase block capacity |
+| `shrink()` | Reduce block capacity to fit occupied elements |
 | `free()` | Free a block |
 | `gc()` | Compact the data heap |
+
 
 ### Stack operations
 
@@ -393,24 +396,6 @@ The following is a summary of these groups:
 | `unallocatedBytes` | Space remaining after the bump pointer |
 | `fragmentationRatio` | Recycled bytes / used heap area |
 
-### Borrowing memory with `withView()`
-
-`withView(handler, callback)` provides the callback with a `TypedArray` directly over the block's occupied region. The view is not a copy: changes made through it modify the block's contents. The callback is synchronous, receives the view as its only argument, and its return value is propagated by `withView()`.
-
-The view must not be retained or used after the callback finishes. If the callback returns a Promise, the borrow is released immediately when that Promise is returned; it is not held until the Promise settles. The lock is also released if the callback throws.
-
-While a block is borrowed, operations that directly modify it are blocked, including `push()`, `pop()`, `nudge()`, `pull()`, `set()`, `clear()`, `fill()`, `fillAll()`, `put()`, `realloc()`, `free()`, and copy operations that use it as the destination. `swap()` is also blocked if either block is borrowed. Read operations and operations that use the block only as a source remain allowed.
-
-Operations that replace or remap `dataBus`, such as `gc()` and bus growth triggered by `alloc()` or `realloc()`, are blocked while any view is active.
-
-Example:
-
-```js
-const result = memory.withView(handler, view => {
-    view[0] = 42;
-    return view.length;
-});
-```
 
 ### Internal functions
 

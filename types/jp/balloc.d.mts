@@ -123,20 +123,20 @@ export default class Balloc {
      */
     realloc(handler: number): void;
     /**
-    * メモリブロックを解放します。
-    *
-    * ブロックのヘッダーはクッキーをゼロに設定することで無効化され、
-    * そのアドレスは後で再利用するために登録されます。ブロックが `dataBus` の
-    * 正確なトップにある場合を除き、データ領域も再利用システムに戻されます。
-    * トップにある場合は、`dataPointer` が単に巻き戻され、再利用リストに
-    * エントリを作成せずに領域が破棄されます。
-    *
-    * @param {number} handler - 解放するブロックのハンドル。
-    * @returns {void}
-    * @throws {Error} ハンドルが無効、破損している場合、またはブロックが
-    * withView() によって借用されている場合。
-    */
-    free(handler: number): void;
+     * ブロックのアドレスとハンドルを維持したまま、使用中の要素を格納できる
+     * 最小の2のべき乗の容量まで縮小します。
+     *
+     * ブロックが dataBus のトップにある場合、dataPointer を後退させます。
+     * それ以外の場合、解放された末尾領域を2のべき乗の領域に分割し、
+     * 各領域を再利用リストに戻します。
+     *
+     * @param {number} handler - 縮小するブロックのハンドル。
+     * @returns {void}
+     * @throws {Error} ハンドルが無効または破損している場合、あるいは
+     * withView() によってブロックが借用されている場合。
+     */
+    shrink(handler: number): void;
+    free(handler: any): void;
     /**
      * [内部利用]
      * 空き領域を再利用リストに挿入します。
@@ -223,14 +223,13 @@ export default class Balloc {
      * 要素は、最後尾の占有要素の直後の最初の空き位置に書き込まれます。
      * ブロックの占有数は、その容量内に空きスペースが存在する場合にのみインクリメントされます。
      *
-     * @param {number} handler - ブロックのハンドル。
      * @param {number} value - 挿入する値。
      * @returns {boolean} 値が挿入された場合は `true`、ブロックに利用可能な
      * スペースがない場合は `false`。
      * @throws {Error} ハンドルが無効、破損している場合、またはブロックが withView() によって借用されている場合。
      *
      */
-    push(handler: number, value: number): boolean;
+    push(handler: any, value: number): boolean;
     /**
      * ブロックから最後尾の占有要素を削除し、それを返します。
      *
@@ -442,12 +441,12 @@ export default class Balloc {
      * サブビューにも適用されます。
      *
      * @param {number} handler - ブロックのハンドル。
-     * @param {Function} callback - 共有された TypedArray を受け取る関数。
+     * @param {...(number|Function)} args - 1つ以上のブロックハンドルと、その後に続くコールバック。
      * @returns {*} コールバックによって生成された戻り値。
-     * @throws {TypeError} コールバックが関数ではない場合。
-     * @throws {Error} ハンドルが無効であるか、すでに借用されている場合。
+     * @throws {TypeError} ハンドルが指定されていない場合、またはコールバックが関数ではない場合。
+     * @throws {Error} いずれかのハンドルが無効、重複、または借用中の場合。
      */
-    withView(handler: number, callback: Function): any;
+    withView(...args: (number | Function)[]): any;
     /**
      * ブロックの物理的容量をバイト単位で返します。
      *

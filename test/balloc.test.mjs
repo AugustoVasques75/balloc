@@ -337,6 +337,134 @@ describe("Balloc", () => {
         });
     });
 
+    describe("shrink", () => {
+        it("reduz um bloco no topo sem reciclar a cauda", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(16);
+            memory.put(handler, [10, 20, 30]);
+
+            memory.shrink(handler);
+
+            expect(memory.length(handler)).toBe(4);
+            expect(memory.occupied(handler)).toBe(3);
+            expect(memory.pick(handler)).toEqual(new Uint8Array([10, 20, 30]));
+            expect(memory.dataPointer).toBe(4);
+            expect(memory.recycleBytes).toBe(0);
+        });
+
+        it("decompõe a cauda de um bloco não localizado no topo em regiões recicláveis", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(16);
+            const other = memory.alloc(2);
+            memory.put(handler, [10, 20, 30]);
+            memory.put(other, [90]);
+
+            memory.shrink(handler);
+
+            expect(memory.length(handler)).toBe(4);
+            expect(memory.occupied(handler)).toBe(3);
+            expect(memory.pick(handler)).toEqual(new Uint8Array([10, 20, 30]));
+            expect(memory.pick(other)).toEqual(new Uint8Array([90]));
+            expect(memory.recycle.get(4)[0]).toBe(1);
+            expect(memory.recycle.get(8)[0]).toBe(1);
+
+            const eight = memory.alloc(8);
+            const four = memory.alloc(4);
+            memory.withView(eight, view => expect(view.byteOffset).toBe(8));
+            memory.withView(four, view => expect(view.byteOffset).toBe(4));
+        });
+
+        it("preserva alinhamento em bytes para buckets maiores que um byte", () => {
+            const memory = new Balloc(256, "32u");
+            const handler = memory.alloc(16);
+            memory.alloc(2);
+            memory.put(handler, [10, 20, 30]);
+
+            memory.shrink(handler);
+
+            const eight = memory.alloc(8);
+            const four = memory.alloc(4);
+            memory.withView(eight, view => {
+                expect(view.byteOffset).toBe(32);
+                expect(view).toBeInstanceOf(Uint32Array);
+            });
+            memory.withView(four, view => {
+                expect(view.byteOffset).toBe(16);
+                expect(view).toBeInstanceOf(Uint32Array);
+            });
+        });
+
+        it("usa capacidade mínima de dois slots para blocos vazios ou com um elemento", () => {
+            const memory = new Balloc(64, "8u");
+            const empty = memory.alloc(16);
+            const single = memory.alloc(8);
+            memory.push(single, 7);
+
+            memory.shrink(empty);
+            memory.shrink(single);
+
+            expect(memory.length(empty)).toBe(2);
+            expect(memory.length(single)).toBe(2);
+            expect(memory.pick(single)).toEqual(new Uint8Array([7]));
+        });
+
+        it("não altera blocos que já possuem capacidade suficiente", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(4);
+            memory.put(handler, [1, 2, 3]);
+
+            memory.shrink(handler);
+
+            expect(memory.length(handler)).toBe(4);
+            expect(memory.recycleBytes).toBe(0);
+        });
+
+        it("preserva handler e endereço do bloco", () => {
+            const memory = new Balloc(64, "32u");
+            const handler = memory.alloc(16);
+            memory.put(handler, [10, 20, 30]);
+            let originalAddress;
+
+            memory.withView(handler, view => { originalAddress = view.byteOffset; });
+            memory.shrink(handler);
+
+            expect(memory.length(handler)).toBe(4);
+            memory.withView(handler, view => expect(view.byteOffset).toBe(originalAddress));
+            expect(memory.pick(handler)).toEqual(new Uint32Array([10, 20, 30]));
+        });
+
+        it("bloqueia a contração do próprio bloco enquanto está emprestado", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(16);
+            memory.put(handler, [1, 2, 3]);
+
+            expect(() => memory.withView(handler, () => memory.shrink(handler))).toThrow(/borrowed/i);
+            expect(memory.length(handler)).toBe(16);
+            memory.shrink(handler);
+            expect(memory.length(handler)).toBe(4);
+        });
+
+        it("permite contrair um bloco enquanto outro bloco possui view ativa", () => {
+            const memory = new Balloc(64, "8u");
+            const borrowed = memory.alloc(2);
+            const target = memory.alloc(16);
+            memory.put(target, [1, 2, 3]);
+
+            memory.withView(borrowed, () => memory.shrink(target));
+
+            expect(memory.length(target)).toBe(4);
+            expect(memory.pick(target)).toEqual(new Uint8Array([1, 2, 3]));
+        });
+
+        it("rejeita handlers inválidos", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(16);
+            memory.free(handler);
+
+            expect(() => memory.shrink(handler)).toThrow();
+        });
+    });
+
     describe("realloc", () => {
         it("duplica a capacidade e preserva os elementos ocupados", () => {
             const memory = new Balloc(128, "32u");
@@ -868,7 +996,127 @@ describe("Balloc", () => {
                 expect(view).toEqual(new Uint8Array([10, 20]));
             });
         });
+
+
+            it("empresta múltiplos segmentos simultaneamente", () => {
+            const memory = new Balloc(128, "32u");
+            const a = memory.alloc(4);
+            const b = memory.alloc(8);
+            const c = memory.alloc(2);
+
+            memory.put(a, [10, 20]);
+            memory.put(b, [30, 40, 50]);
+            memory.put(c, [60]);
+
+            const result = memory.withView(a, b, c, (viewA, viewB, viewC) => {
+                expect(viewA).toBeInstanceOf(Uint32Array);
+                expect(viewB).toBeInstanceOf(Uint32Array);
+                expect(viewC).toBeInstanceOf(Uint32Array);
+
+                expect(viewA).toEqual(new Uint32Array([10, 20]));
+                expect(viewB).toEqual(new Uint32Array([30, 40, 50]));
+                expect(viewC).toEqual(new Uint32Array([60]));
+
+                viewA[0] = 100;
+                viewB[1] = 200;
+                viewC[0] = 300;
+
+                return viewA[0] + viewB[1] + viewC[0];
+            });
+
+            expect(result).toBe(600);
+            expect(memory.pick(a)).toEqual(new Uint32Array([100, 20]));
+            expect(memory.pick(b)).toEqual(new Uint32Array([30, 200, 50]));
+            expect(memory.pick(c)).toEqual(new Uint32Array([300]));
+        });
+
+        it("rejeita handlers duplicados", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(8);
+
+            expect(() => memory.withView(handler, handler, () => { })).toThrow(/duplicate handler/i);
+
+            expect(() => memory.set(handler, 0, 10)).not.toThrow();
+            expect(() => memory.withView(handler, () => { })).not.toThrow();
+        });
+
+        it("não deixa locks residuais quando um handler é inválido", () => {
+            const memory = new Balloc(64, "8u");
+            const valid = memory.alloc(8);
+            const invalid = memory.alloc(8);
+
+            memory.free(invalid);
+
+            expect(() => memory.withView(valid, invalid, () => { })).toThrow();
+
+            expect(() => memory.set(valid, 0, 10)).not.toThrow();
+            expect(() => memory.withView(valid, () => { })).not.toThrow();
+        });
+
+        it("não altera locks quando um dos handlers já está emprestado", () => {
+            const memory = new Balloc(128, "8u");
+            const a = memory.alloc(8);
+            const b = memory.alloc(8);
+
+            memory.withView(a, () => {
+                expect(() => memory.withView(b, a, () => { })).toThrow(/borrowed/i);
+
+                expect(() => memory.set(b, 0, 10)).not.toThrow();
+                expect(() => memory.withView(b, () => { })).not.toThrow();
+            });
+
+            expect(() => memory.set(a, 0, 20)).not.toThrow();
+        });
+
+        it("libera todos os locks quando o callback lança uma exceção", () => {
+            const memory = new Balloc(128, "8u");
+            const a = memory.alloc(8);
+            const b = memory.alloc(8);
+
+            memory.put(a, [10, 20]);
+            memory.put(b, [30, 40]);
+
+            expect(() => memory.withView(a, b, () => {
+                throw new Error("callback failure");
+            })).toThrow("callback failure");
+
+            expect(() => memory.set(a, 0, 99)).not.toThrow();
+            expect(() => memory.set(b, 0, 88)).not.toThrow();
+
+            expect(memory.get(a, 0)).toBe(99);
+            expect(memory.get(b, 0)).toBe(88);
+        });
+
+        it("bloqueia operações nos dois segmentos durante o empréstimo", () => {
+            const memory = new Balloc(128, "8u");
+            const a = memory.alloc(8);
+            const b = memory.alloc(8);
+
+            memory.put(a, [10, 20]);
+            memory.put(b, [30, 40]);
+
+            expect(() => memory.withView(a, b, () => {
+                expect(() => memory.set(a, 0, 99)).toThrow(/borrowed/i);
+                expect(() => memory.set(b, 0, 99)).toThrow(/borrowed/i);
+                expect(() => memory.free(a)).toThrow(/borrowed/i);
+                expect(() => memory.realloc(b)).toThrow(/borrowed/i);
+            })).not.toThrow();
+
+            expect(memory.pick(a)).toEqual(new Uint8Array([10, 20]));
+            expect(memory.pick(b)).toEqual(new Uint8Array([30, 40]));
+        });
+
+        it("rejeita chamadas sem handlers ou callback", () => {
+            const memory = new Balloc(64, "8u");
+            const handler = memory.alloc(8);
+
+            expect(() => memory.withView()).toThrow(TypeError);
+            expect(() => memory.withView(handler)).toThrow(TypeError);
+            expect(() => memory.withView(handler, null)).toThrow(TypeError);
+            expect(() => memory.withView(handler, 123)).toThrow(TypeError);
+
+            expect(() => memory.withView(handler, () => { })).not.toThrow();
+        });
+
     });
-
-
 });

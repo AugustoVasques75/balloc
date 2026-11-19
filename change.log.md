@@ -1,7 +1,0 @@
-# version 1.2
-- Fix duplicate memory allocation in constructor - https://github.com/AugustoVasques75/balloc/issues/4
-- Add `indexOf()` method - https://github.com/AugustoVasques75/balloc/issues/1
-- Add `lastIndexOf()` method
-- Add method isFull() - https://github.com/AugustoVasques75/balloc/issues/2
-- Typo correction
-- Add `withView()` method to address the Direct Mutable Access to Allocation Storage issue: https://github.com/AugustoVasques75/balloc/issues/3
