@@ -223,14 +223,13 @@ export default class Balloc {
      * 要素は、最後尾の占有要素の直後の最初の空き位置に書き込まれます。
      * ブロックの占有数は、その容量内に空きスペースが存在する場合にのみインクリメントされます。
      *
-     * @param {number} handler - ブロックのハンドル。
      * @param {number} value - 挿入する値。
      * @returns {boolean} 値が挿入された場合は `true`、ブロックに利用可能な
      * スペースがない場合は `false`。
      * @throws {Error} ハンドルが無効、破損している場合、またはブロックが withView() によって借用されている場合。
      *
      */
-    push(handler: number, value: number): boolean;
+    push(handler: any, value: number): boolean;
     /**
      * ブロックから最後尾の占有要素を削除し、それを返します。
      *
@@ -442,12 +441,12 @@ export default class Balloc {
      * サブビューにも適用されます。
      *
      * @param {number} handler - ブロックのハンドル。
-     * @param {Function} callback - 共有された TypedArray を受け取る関数。
+     * @param {...(number|Function)} args - 1つ以上のブロックハンドルと、その後に続くコールバック。
      * @returns {*} コールバックによって生成された戻り値。
-     * @throws {TypeError} コールバックが関数ではない場合。
-     * @throws {Error} ハンドルが無効であるか、すでに借用されている場合。
+     * @throws {TypeError} ハンドルが指定されていない場合、またはコールバックが関数ではない場合。
+     * @throws {Error} いずれかのハンドルが無効、重複、または借用中の場合。
      */
-    withView(...args: any[]): any;
+    withView(...args: (number | Function)[]): any;
     /**
      * ブロックの物理的容量をバイト単位で返します。
      *

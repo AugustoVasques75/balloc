@@ -412,7 +412,6 @@ var Balloc = class {
    * ocupado. La ocupación del bloque se incrementa únicamente cuando hay espacio
    * disponible dentro de su capacidad.
    *
-   * @param {number} handler - Descriptor del bloque.
    * @param {number} value - Valor que se va a insertar.
    * @returns {boolean} `true` si el valor fue insertado; `false` si el bloque
    * ya no dispone de espacio libre.
@@ -771,10 +770,10 @@ var Balloc = class {
    * también se aplica a las subvistas derivadas de la vista original.
    *
    * @param {number} handler - Descriptor del bloque.
-   * @param {Function} callback - Función que recibe el TypedArray compartido.
+   * @param {...(number|Function)} args - Uno o más descriptores de bloque, seguidos de la retrollamada.
    * @returns {*} Valor devuelto por la retrollamada.
-   * @throws {TypeError} Si la retrollamada no es una función.
-   * @throws {Error} Si el descriptor no es válido o ya está prestado.
+   * @throws {TypeError} Si no se proporciona ningún descriptor o la retrollamada no es una función.
+   * @throws {Error} Si algún descriptor no es válido, está duplicado o ya está prestado.
    */
   withView(...args) {
     if (args.length < 2) throw new TypeError("At least one handler and one callback are required");
@@ -786,12 +785,11 @@ var Balloc = class {
     if (new Set(headers).size !== headers.length) throw new Error("Duplicate handler");
     const flags = headers.map((header) => this.controlBus[header + FLAGS_OFFSET]);
     if (flags.some((flag) => flag & VIEW_LOCK)) throw new Error("Block is already borrowed");
-    const acquired = [];
+    let acquiredCount = 0;
     try {
       for (const header of headers) {
-        const address = header + FLAGS_OFFSET;
-        this.controlBus[address] |= VIEW_LOCK;
-        acquired.push(address);
+        this.controlBus[header + FLAGS_OFFSET] |= VIEW_LOCK;
+        acquiredCount++;
       }
       const views = metadata.map((meta) => {
         const rawAddress = meta.dataAddress >>> this.wordShift;
@@ -799,7 +797,9 @@ var Balloc = class {
       });
       return callback(...views);
     } finally {
-      for (const address of acquired) this.controlBus[address] &= ~VIEW_LOCK;
+      for (let i = 0; i < acquiredCount; i++) {
+        this.controlBus[headers[i] + FLAGS_OFFSET] &= ~VIEW_LOCK;
+      }
     }
   }
   // ======== CAPACIDAD EN RANURAS (CAPACITY IN SLOTS) ==========

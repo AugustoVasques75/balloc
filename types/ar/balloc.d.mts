@@ -228,14 +228,13 @@ export default class Balloc {
      * مشغول. يتم زيادة إشغال الكتلة فقط عندما تكون هناك مساحة
      * متاحة ضمن سعتها.
      *
-     * @param {number} handler - مقبض الكتلة.
      * @param {number} value - القيمة المراد إدراجها.
      * @returns {boolean} `true` إذا تم إدراج القيمة؛ `false` إذا كانت الكتلة
      * بلا مساحة متاحة.
      * @throws {Error} إذا كان المقبض غير صالح، أو تالفاً، أو كانت الكتلة معارة بواسطة withView().
      *
      */
-    push(handler: number, value: number): boolean;
+    push(handler: any, value: number): boolean;
     /**
      * يزيل آخر عنصر مشغول من الكتلة ويرجعه.
      *
@@ -469,12 +468,12 @@ export default class Balloc {
      * على العروض الفرعية (Subviews) المشتقة من العرض الأصلي.
      *
      * @param {number} handler - مقبض الكتلة.
-     * @param {Function} callback - الدالة التي تتلقى TypedArray المشترك.
+     * @param {...(number|Function)} args - مقبض كتلة واحد أو أكثر، تليها دالة رد الاتصال.
      * @returns {*} القيمة المُرجعة بواسطة دالة رد الاتصال.
-     * @throws {TypeError} إذا لم تكن دالة رد الاتصال دالة.
-     * @throws {Error} إذا كان المقبض غير صالح أو معاراً مسبقاً.
+     * @throws {TypeError} إذا لم يتم توفير أي مقبض أو لم تكن دالة رد الاتصال دالة.
+     * @throws {Error} إذا كان أي مقبض غير صالح أو مكرراً أو معاراً مسبقاً.
      */
-    withView(...args: any[]): any;
+    withView(...args: (number | Function)[]): any;
     /**
      * يرجع السعة الفيزيائية للكتلة بالبايت.
      *

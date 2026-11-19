@@ -382,7 +382,6 @@ var Balloc = class {
    * 该元素被写入最后一个占用元素之后的第一个空闲位置。
    * 只有在容量范围内有可用空间时，块的占用数才会递增。
    *
-   * @param {number} handler - 块句柄。
    * @param {number} value - 要插入的值。
    * @returns {boolean} 如果值已成功插入则为 `true`；如果块已无可用空间则为 `false`。
    * @throws {Error} 如果句柄无效、已损坏，或者块正通过 withView() 被借用。
@@ -704,10 +703,10 @@ var Balloc = class {
    * 此限制同样适用于从原始视图派生的子视图（subviews）。
    *
    * @param {number} handler - 块句柄。
-   * @param {Function} callback - 接收共享 TypedArray 的函数。
+   * @param {...(number|Function)} args - 一个或多个块句柄，最后一个参数为回调函数。
    * @returns {*} 回调函数产生 返回值。
-   * @throws {TypeError} 如果回调不是函数。
-   * @throws {Error} 如果句柄无效或已被借用。
+   * @throws {TypeError} 如果未提供句柄或回调不是函数。
+   * @throws {Error} 如果任一句柄无效、重复或已被借用。
    */
   withView(...args) {
     if (args.length < 2) throw new TypeError("At least one handler and one callback are required");
@@ -719,12 +718,11 @@ var Balloc = class {
     if (new Set(headers).size !== headers.length) throw new Error("Duplicate handler");
     const flags = headers.map((header) => this.controlBus[header + FLAGS_OFFSET]);
     if (flags.some((flag) => flag & VIEW_LOCK)) throw new Error("Block is already borrowed");
-    const acquired = [];
+    let acquiredCount = 0;
     try {
       for (const header of headers) {
-        const address = header + FLAGS_OFFSET;
-        this.controlBus[address] |= VIEW_LOCK;
-        acquired.push(address);
+        this.controlBus[header + FLAGS_OFFSET] |= VIEW_LOCK;
+        acquiredCount++;
       }
       const views = metadata.map((meta) => {
         const rawAddress = meta.dataAddress >>> this.wordShift;
@@ -732,7 +730,9 @@ var Balloc = class {
       });
       return callback(...views);
     } finally {
-      for (const address of acquired) this.controlBus[address] &= ~VIEW_LOCK;
+      for (let i = 0; i < acquiredCount; i++) {
+        this.controlBus[headers[i] + FLAGS_OFFSET] &= ~VIEW_LOCK;
+      }
     }
   }
   // ======== 槽位容量 (CAPACITY IN SLOTS) ==========

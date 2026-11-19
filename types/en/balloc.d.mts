@@ -239,14 +239,13 @@ export default class Balloc {
      * element. Block occupancy is incremented only when space is available
      * within its capacity.
      *
-     * @param {number} handler - Block handle.
      * @param {number} value - Value to be inserted.
      * @returns {boolean} `true` if the value was inserted; `false` if the block
      * is already out of available space.
      * @throws {Error} If the handle is invalid, corrupted, or the block is borrowed via withView().
      *
      */
-    push(handler: number, value: number): boolean;
+    push(handler: any, value: number): boolean;
     /**
      * Removes the last occupied element from the block and returns it.
      *
@@ -479,12 +478,12 @@ export default class Balloc {
      * also applies to subviews derived from the original view.
      *
      * @param {number} handler - Block handle.
-     * @param {Function} callback - Function receiving the shared TypedArray.
+     * @param {...(number|Function)} args - One or more block handles followed by the callback.
      * @returns {*} Return value produced by the callback.
-     * @throws {TypeError} If callback is not a function.
-     * @throws {Error} If the handle is invalid or already borrowed.
+     * @throws {TypeError} If no handle is provided or the callback is not a function.
+     * @throws {Error} If a handle is invalid, duplicated, or already borrowed.
      */
-    withView(...args: any[]): any;
+    withView(...args: (number | Function)[]): any;
     /**
      * Returns the physical capacity of the block in bytes.
      *

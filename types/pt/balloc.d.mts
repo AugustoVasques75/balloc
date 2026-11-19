@@ -482,13 +482,12 @@ export default class Balloc {
      * retornada ou utilizada após o término do callback. Essa restrição
      * também se aplica a subviews derivadas da view original.
      *
-     * @param {number} handler - Handler do bloco.
-     * @param {Function} callback - Função que recebe a TypedArray compartilhada.
+     * @param {...number|Function} args - Um ou mais handlers, seguidos pelo callback.
      * @returns {*} Retorno produzido pelo callback.
-     * @throws {TypeError} Se callback não for uma função.
-     * @throws {Error} Se o handler for inválido ou já estiver emprestado.
+     * @throws {TypeError} Se não houver handler ou se o callback não for uma função.
+     * @throws {Error} Se algum handler for inválido, duplicado ou já estiver emprestado.
      */
-    withView(...args: any[]): any;
+    withView(...args: (number | Function)[]): any;
     /**
      * Retorna a capacidade física do bloco em bytes.
      *

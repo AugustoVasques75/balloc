@@ -412,7 +412,6 @@ var Balloc = class {
    * element. Block occupancy is incremented only when space is available
    * within its capacity.
    *
-   * @param {number} handler - Block handle.
    * @param {number} value - Value to be inserted.
    * @returns {boolean} `true` if the value was inserted; `false` if the block
    * is already out of available space.
@@ -769,10 +768,10 @@ var Balloc = class {
    * also applies to subviews derived from the original view.
    *
    * @param {number} handler - Block handle.
-   * @param {Function} callback - Function receiving the shared TypedArray.
+   * @param {...(number|Function)} args - One or more block handles followed by the callback.
    * @returns {*} Return value produced by the callback.
-   * @throws {TypeError} If callback is not a function.
-   * @throws {Error} If the handle is invalid or already borrowed.
+   * @throws {TypeError} If no handle is provided or the callback is not a function.
+   * @throws {Error} If a handle is invalid, duplicated, or already borrowed.
    */
   withView(...args) {
     if (args.length < 2) throw new TypeError("At least one handler and one callback are required");
@@ -784,12 +783,11 @@ var Balloc = class {
     if (new Set(headers).size !== headers.length) throw new Error("Duplicate handler");
     const flags = headers.map((header) => this.controlBus[header + FLAGS_OFFSET]);
     if (flags.some((flag) => flag & VIEW_LOCK)) throw new Error("Block is already borrowed");
-    const acquired = [];
+    let acquiredCount = 0;
     try {
       for (const header of headers) {
-        const address = header + FLAGS_OFFSET;
-        this.controlBus[address] |= VIEW_LOCK;
-        acquired.push(address);
+        this.controlBus[header + FLAGS_OFFSET] |= VIEW_LOCK;
+        acquiredCount++;
       }
       const views = metadata.map((meta) => {
         const rawAddress = meta.dataAddress >>> this.wordShift;
@@ -797,7 +795,9 @@ var Balloc = class {
       });
       return callback(...views);
     } finally {
-      for (const address of acquired) this.controlBus[address] &= ~VIEW_LOCK;
+      for (let i = 0; i < acquiredCount; i++) {
+        this.controlBus[headers[i] + FLAGS_OFFSET] &= ~VIEW_LOCK;
+      }
     }
   }
   // ======== CAPACITY IN SLOTS ==========

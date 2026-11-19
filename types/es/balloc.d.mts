@@ -239,14 +239,13 @@ export default class Balloc {
      * ocupado. La ocupación del bloque se incrementa únicamente cuando hay espacio
      * disponible dentro de su capacidad.
      *
-     * @param {number} handler - Descriptor del bloque.
      * @param {number} value - Valor que se va a insertar.
      * @returns {boolean} `true` si el valor fue insertado; `false` si el bloque
      * ya no dispone de espacio libre.
      * @throws {Error} Si el descriptor no es válido, está corrupto o el bloque está prestado mediante `withView()`.
      *
      */
-    push(handler: number, value: number): boolean;
+    push(handler: any, value: number): boolean;
     /**
      * Elimina el último elemento ocupado del bloque y lo devuelve.
      *
@@ -481,12 +480,12 @@ export default class Balloc {
      * también se aplica a las subvistas derivadas de la vista original.
      *
      * @param {number} handler - Descriptor del bloque.
-     * @param {Function} callback - Función que recibe el TypedArray compartido.
+     * @param {...(number|Function)} args - Uno o más descriptores de bloque, seguidos de la retrollamada.
      * @returns {*} Valor devuelto por la retrollamada.
-     * @throws {TypeError} Si la retrollamada no es una función.
-     * @throws {Error} Si el descriptor no es válido o ya está prestado.
+     * @throws {TypeError} Si no se proporciona ningún descriptor o la retrollamada no es una función.
+     * @throws {Error} Si algún descriptor no es válido, está duplicado o ya está prestado.
      */
-    withView(...args: any[]): any;
+    withView(...args: (number | Function)[]): any;
     /**
      * Devuelve la capacidad física del bloque en bytes.
      *
