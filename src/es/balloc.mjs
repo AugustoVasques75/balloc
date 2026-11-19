@@ -259,7 +259,7 @@ export default class Balloc {
      * máximo soportado.
      */
     realloc(handler) {
-        
+
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
         const headerAddress = handler >>> 0;
         const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
@@ -304,23 +304,23 @@ export default class Balloc {
         this.recyclePush(oldBlockSize, dataAddress);
     }
 
-     /**
-     * Libera un bloque de memoria.
-     *
-     * La cabecera del bloque se invalida poniendo su cookie a cero y su
-     * dirección se registra para su posterior reutilización. La región de datos
-     * también se devuelve al sistema de reciclaje, excepto cuando el bloque está
-     * exactamente en la cima del `dataBus`; en ese caso, el puntero `dataPointer` simplemente
-     * retrocede, eliminando la región sin crear una entrada en la lista de
-     * reciclaje.
-     *
-     * @param {number} handler - Descriptor del bloque a liberar.
-     * @returns {void}
-     * @throws {Error} Si el descriptor no es válido, está corrupto o el bloque
-     * está prestado mediante `withView()`.
-     */
+    /**
+    * Libera un bloque de memoria.
+    *
+    * La cabecera del bloque se invalida poniendo su cookie a cero y su
+    * dirección se registra para su posterior reutilización. La región de datos
+    * también se devuelve al sistema de reciclaje, excepto cuando el bloque está
+    * exactamente en la cima del `dataBus`; en ese caso, el puntero `dataPointer` simplemente
+    * retrocede, eliminando la región sin crear una entrada en la lista de
+    * reciclaje.
+    *
+    * @param {number} handler - Descriptor del bloque a liberar.
+    * @returns {void}
+    * @throws {Error} Si el descriptor no es válido, está corrupto o el bloque
+    * está prestado mediante `withView()`.
+    */
     free(handler) {
-        
+
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
         const headerAddress = handler >>> 0;
         const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
@@ -956,22 +956,39 @@ export default class Balloc {
      * @throws {TypeError} Si la retrollamada no es una función.
      * @throws {Error} Si el descriptor no es válido o ya está prestado.
      */
-    withView(handler, callback) {
+    withView(...args) {
+        if (args.length < 2) throw new TypeError("At least one handler and one callback are required");
+
+        const callback = args.pop();
         if (typeof callback !== "function") throw new TypeError("callback must be a function");
 
-        const meta = this.extractMetadata(handler, this.metadata);
-        const flagsAddress = meta.headerAddress + FLAGS_OFFSET;
-        const flags = this.controlBus[flagsAddress];
+        const handlers = args;
+        const metadata = handlers.map(handler => this.extractMetadata(handler, {}));
+        const headers = metadata.map(meta => meta.headerAddress);
 
-        if (flags & VIEW_LOCK) throw new Error("Block is already borrowed");
+        if (new Set(headers).size !== headers.length) throw new Error("Duplicate handler");
 
-        this.controlBus[flagsAddress] = flags | VIEW_LOCK;
+        const flags = headers.map(header => this.controlBus[header + FLAGS_OFFSET]);
+
+        if (flags.some(flag => flag & VIEW_LOCK)) throw new Error("Block is already borrowed");
+
+        const acquired = [];
 
         try {
-            const rawAddress = meta.dataAddress >>> this.wordShift;
-            return callback(this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied));
+            for (const header of headers) {
+                const address = header + FLAGS_OFFSET;
+                this.controlBus[address] |= VIEW_LOCK;
+                acquired.push(address);
+            }
+
+            const views = metadata.map(meta => {
+                const rawAddress = meta.dataAddress >>> this.wordShift;
+                return this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied);
+            });
+
+            return callback(...views);
         } finally {
-            this.controlBus[flagsAddress] &= ~VIEW_LOCK;
+            for (const address of acquired) this.controlBus[address] &= ~VIEW_LOCK;
         }
     }
 
@@ -1038,29 +1055,29 @@ export default class Balloc {
 
     // ========== Operaciones entre bloques (Operations between blocks) =============
 
-     /**
-     * Copia elementos ocupados de un bloque a otro.
-     *
-     * La copia comienza en el primer elemento de la fuente (`source`) y en la primera ranura del
-     * destino (`destination`). La cantidad efectivamente copiada está limitada por el número de
-     * elementos ocupados en la fuente, la capacidad física del destino y el
-     * límite especificado en `slots`.
-     *
-     * La ocupación del destino se incrementa, cuando es necesario, para abarcar los
-     * elementos copiados. La capacidad del destino no se altera.
-     *
-     * La operación utiliza `Uint8Array.prototype.copyWithin()` sobre el `dataBus`,
-     * por lo que el valor devuelto es el propio `Uint8Array` que representa el bus de datos.
-     *
-     * @param {number} source - Descriptor del bloque de origen.
-     * @param {number} destination - Descriptor del bloque de destino.
-     * @param {number} [slots=UNKNOWN] - Número máximo de elementos que se van a copiar.
-     * `UNKNOWN` representa el valor centinela utilizado para no imponer un
-     * límite adicional.
-     * @returns {Uint8Array} El `dataBus` tras la operación.
-     * @throws {Error} Si los descriptores no son válidos, están corruptos
-     * o el bloque de destino está prestado mediante `withView()`.
-     */
+    /**
+    * Copia elementos ocupados de un bloque a otro.
+    *
+    * La copia comienza en el primer elemento de la fuente (`source`) y en la primera ranura del
+    * destino (`destination`). La cantidad efectivamente copiada está limitada por el número de
+    * elementos ocupados en la fuente, la capacidad física del destino y el
+    * límite especificado en `slots`.
+    *
+    * La ocupación del destino se incrementa, cuando es necesario, para abarcar los
+    * elementos copiados. La capacidad del destino no se altera.
+    *
+    * La operación utiliza `Uint8Array.prototype.copyWithin()` sobre el `dataBus`,
+    * por lo que el valor devuelto es el propio `Uint8Array` que representa el bus de datos.
+    *
+    * @param {number} source - Descriptor del bloque de origen.
+    * @param {number} destination - Descriptor del bloque de destino.
+    * @param {number} [slots=UNKNOWN] - Número máximo de elementos que se van a copiar.
+    * `UNKNOWN` representa el valor centinela utilizado para no imponer un
+    * límite adicional.
+    * @returns {Uint8Array} El `dataBus` tras la operación.
+    * @throws {Error} Si los descriptores no son válidos, están corruptos
+    * o el bloque de destino está prestado mediante `withView()`.
+    */
     copy(source, destination, slots = UNKNOWN) {
         /** @type {Metadata} */
         const metaA = {};

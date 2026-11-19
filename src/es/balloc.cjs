@@ -776,18 +776,30 @@ var Balloc = class {
    * @throws {TypeError} Si la retrollamada no es una función.
    * @throws {Error} Si el descriptor no es válido o ya está prestado.
    */
-  withView(handler, callback) {
+  withView(...args) {
+    if (args.length < 2) throw new TypeError("At least one handler and one callback are required");
+    const callback = args.pop();
     if (typeof callback !== "function") throw new TypeError("callback must be a function");
-    const meta = this.extractMetadata(handler, this.metadata);
-    const flagsAddress = meta.headerAddress + FLAGS_OFFSET;
-    const flags = this.controlBus[flagsAddress];
-    if (flags & VIEW_LOCK) throw new Error("Block is already borrowed");
-    this.controlBus[flagsAddress] = flags | VIEW_LOCK;
+    const handlers = args;
+    const metadata = handlers.map((handler) => this.extractMetadata(handler, {}));
+    const headers = metadata.map((meta) => meta.headerAddress);
+    if (new Set(headers).size !== headers.length) throw new Error("Duplicate handler");
+    const flags = headers.map((header) => this.controlBus[header + FLAGS_OFFSET]);
+    if (flags.some((flag) => flag & VIEW_LOCK)) throw new Error("Block is already borrowed");
+    const acquired = [];
     try {
-      const rawAddress = meta.dataAddress >>> this.wordShift;
-      return callback(this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied));
+      for (const header of headers) {
+        const address = header + FLAGS_OFFSET;
+        this.controlBus[address] |= VIEW_LOCK;
+        acquired.push(address);
+      }
+      const views = metadata.map((meta) => {
+        const rawAddress = meta.dataAddress >>> this.wordShift;
+        return this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied);
+      });
+      return callback(...views);
     } finally {
-      this.controlBus[flagsAddress] &= ~VIEW_LOCK;
+      for (const address of acquired) this.controlBus[address] &= ~VIEW_LOCK;
     }
   }
   // ======== CAPACIDAD EN RANURAS (CAPACITY IN SLOTS) ==========

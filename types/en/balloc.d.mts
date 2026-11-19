@@ -484,7 +484,7 @@ export default class Balloc {
      * @throws {TypeError} If callback is not a function.
      * @throws {Error} If the handle is invalid or already borrowed.
      */
-    withView(handler: number, callback: Function): any;
+    withView(...args: any[]): any;
     /**
      * Returns the physical capacity of the block in bytes.
      *

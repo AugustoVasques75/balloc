@@ -447,7 +447,7 @@ export default class Balloc {
      * @throws {TypeError} コールバックが関数ではない場合。
      * @throws {Error} ハンドルが無効であるか、すでに借用されている場合。
      */
-    withView(handler: number, callback: Function): any;
+    withView(...args: any[]): any;
     /**
      * ブロックの物理的容量をバイト単位で返します。
      *

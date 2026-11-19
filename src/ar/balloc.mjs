@@ -257,7 +257,7 @@ export default class Balloc {
      * @throws {AggregateError} إذا وصلت السعة إلى الحد الأقصى المدعوم.
      */
     realloc(handler) {
-        
+
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
         const headerAddress = handler >>> 0;
         const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
@@ -302,21 +302,21 @@ export default class Balloc {
         this.recyclePush(oldBlockSize, dataAddress);
     }
 
-     /**
-     * يحرر كتلة ذاكرة.
-     *
-     * يتم إبطال ترويسة الكتلة عن طريق تصفير ملف تعريف الارتباط الخاص بها وتسجيل
-     * عنوانها لإعادة استخدامها لاحقاً. كما يتم إرجاع منطقة البيانات
-     * إلى نظام إعادة التدوير، إلا إذا كانت الكتلة في قمة `dataBus` تماماً؛
-     * في هذه الحالة، يتم التراجع عن `dataPointer` ببساطة، مما يلغي المنطقة دون إنشاء إدخال في قائمة إعادة التدوير.
-     *
-     * @param {number} handler - مقبض الكتلة المراد تحريرها.
-     * @returns {void}
-     * @throws {Error} إذا كان المقبض غير صالح، أو تالفاً، أو إذا كانت الكتلة
-     * معارة بواسطة withView().
-     */
+    /**
+    * يحرر كتلة ذاكرة.
+    *
+    * يتم إبطال ترويسة الكتلة عن طريق تصفير ملف تعريف الارتباط الخاص بها وتسجيل
+    * عنوانها لإعادة استخدامها لاحقاً. كما يتم إرجاع منطقة البيانات
+    * إلى نظام إعادة التدوير، إلا إذا كانت الكتلة في قمة `dataBus` تماماً؛
+    * في هذه الحالة، يتم التراجع عن `dataPointer` ببساطة، مما يلغي المنطقة دون إنشاء إدخال في قائمة إعادة التدوير.
+    *
+    * @param {number} handler - مقبض الكتلة المراد تحريرها.
+    * @returns {void}
+    * @throws {Error} إذا كان المقبض غير صالح، أو تالفاً، أو إذا كانت الكتلة
+    * معارة بواسطة withView().
+    */
     free(handler) {
-        
+
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
         const headerAddress = handler >>> 0;
         const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
@@ -944,22 +944,39 @@ export default class Balloc {
      * @throws {TypeError} إذا لم تكن دالة رد الاتصال دالة.
      * @throws {Error} إذا كان المقبض غير صالح أو معاراً مسبقاً.
      */
-    withView(handler, callback) {
+    withView(...args) {
+        if (args.length < 2) throw new TypeError("At least one handler and one callback are required");
+
+        const callback = args.pop();
         if (typeof callback !== "function") throw new TypeError("callback must be a function");
 
-        const meta = this.extractMetadata(handler, this.metadata);
-        const flagsAddress = meta.headerAddress + FLAGS_OFFSET;
-        const flags = this.controlBus[flagsAddress];
+        const handlers = args;
+        const metadata = handlers.map(handler => this.extractMetadata(handler, {}));
+        const headers = metadata.map(meta => meta.headerAddress);
 
-        if (flags & VIEW_LOCK) throw new Error("Block is already borrowed");
+        if (new Set(headers).size !== headers.length) throw new Error("Duplicate handler");
 
-        this.controlBus[flagsAddress] = flags | VIEW_LOCK;
+        const flags = headers.map(header => this.controlBus[header + FLAGS_OFFSET]);
+
+        if (flags.some(flag => flag & VIEW_LOCK)) throw new Error("Block is already borrowed");
+
+        const acquired = [];
 
         try {
-            const rawAddress = meta.dataAddress >>> this.wordShift;
-            return callback(this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied));
+            for (const header of headers) {
+                const address = header + FLAGS_OFFSET;
+                this.controlBus[address] |= VIEW_LOCK;
+                acquired.push(address);
+            }
+
+            const views = metadata.map(meta => {
+                const rawAddress = meta.dataAddress >>> this.wordShift;
+                return this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied);
+            });
+
+            return callback(...views);
         } finally {
-            this.controlBus[flagsAddress] &= ~VIEW_LOCK;
+            for (const address of acquired) this.controlBus[address] &= ~VIEW_LOCK;
         }
     }
 
@@ -1026,29 +1043,29 @@ export default class Balloc {
 
     // ========== العمليات بين الكتل (Operations between blocks)=============
 
-     /**
-     * ينسخ العناصر المشغولة من كتلة إلى أخرى.
-     *
-     * يبدأ النسخ عند العنصر الأول من `source` وأول فتحة من
-     * `destination`. الكمية المنسوخة فعلياً محدودة بعدد العناصر
-     * المشغولة في المصدر، والسعة الفيزيائية للوجهة، والحد
-     * المحدد في `slots`.
-     *
-     * يتم رفع إشغال الوجهة، عند الضرورة، لتغطية العناصر
-     * المنسوخة. لا يتم تغيير سعة الوجهة.
-     *
-     * تستخدم العملية `Uint8Array.prototype.copyWithin()` على `dataBus`،
-     * لذلك النتيجة هي `Uint8Array` نفسها التي تمثل ناقل البيانات.
-     *
-     * @param {number} source - مقبض كتلة المصدر.
-     * @param {number} destination - مقبض كتلة الوجهة.
-     * @param {number} [slots=UNKNOWN] - الحد الأقصى لعدد العناصر المراد نسخها.
-     * `UNKNOWN` يمثل القيمة الحارسة المستخدمة لعدم فرض حد
-     * إضافي.
-     * @returns {Uint8Array} ناقل البيانات `dataBus` بعد العملية.
-     * @throws {Error} إذا كانت المقابض غير صالحة، أو تالفة،
-     * أو كانت كتلة الوجهة معارة بواسطة withView().
-     */
+    /**
+    * ينسخ العناصر المشغولة من كتلة إلى أخرى.
+    *
+    * يبدأ النسخ عند العنصر الأول من `source` وأول فتحة من
+    * `destination`. الكمية المنسوخة فعلياً محدودة بعدد العناصر
+    * المشغولة في المصدر، والسعة الفيزيائية للوجهة، والحد
+    * المحدد في `slots`.
+    *
+    * يتم رفع إشغال الوجهة، عند الضرورة، لتغطية العناصر
+    * المنسوخة. لا يتم تغيير سعة الوجهة.
+    *
+    * تستخدم العملية `Uint8Array.prototype.copyWithin()` على `dataBus`،
+    * لذلك النتيجة هي `Uint8Array` نفسها التي تمثل ناقل البيانات.
+    *
+    * @param {number} source - مقبض كتلة المصدر.
+    * @param {number} destination - مقبض كتلة الوجهة.
+    * @param {number} [slots=UNKNOWN] - الحد الأقصى لعدد العناصر المراد نسخها.
+    * `UNKNOWN` يمثل القيمة الحارسة المستخدمة لعدم فرض حد
+    * إضافي.
+    * @returns {Uint8Array} ناقل البيانات `dataBus` بعد العملية.
+    * @throws {Error} إذا كانت المقابض غير صالحة، أو تالفة،
+    * أو كانت كتلة الوجهة معارة بواسطة withView().
+    */
     copy(source, destination, slots = UNKNOWN) {
         /** @type {Metadata} */
         const metaA = {};

@@ -419,7 +419,7 @@ export default class Balloc {
      * @throws {TypeError} 如果回调不是函数。
      * @throws {Error} 如果句柄无效或已被借用。
      */
-    withView(handler: number, callback: Function): any;
+    withView(...args: any[]): any;
     /**
      * 返回块的物理容量（以字节为单位）。
      *

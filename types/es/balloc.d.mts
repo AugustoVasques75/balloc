@@ -486,7 +486,7 @@ export default class Balloc {
      * @throws {TypeError} Si la retrollamada no es una función.
      * @throws {Error} Si el descriptor no es válido o ya está prestado.
      */
-    withView(handler: number, callback: Function): any;
+    withView(...args: any[]): any;
     /**
      * Devuelve la capacidad física del bloque en bytes.
      *

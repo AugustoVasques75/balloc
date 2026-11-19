@@ -488,7 +488,7 @@ export default class Balloc {
      * @throws {TypeError} Se callback não for uma função.
      * @throws {Error} Se o handler for inválido ou já estiver emprestado.
      */
-    withView(handler: number, callback: Function): any;
+    withView(...args: any[]): any;
     /**
      * Retorna a capacidade física do bloco em bytes.
      *

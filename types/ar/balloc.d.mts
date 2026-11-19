@@ -474,7 +474,7 @@ export default class Balloc {
      * @throws {TypeError} إذا لم تكن دالة رد الاتصال دالة.
      * @throws {Error} إذا كان المقبض غير صالح أو معاراً مسبقاً.
      */
-    withView(handler: number, callback: Function): any;
+    withView(...args: any[]): any;
     /**
      * يرجع السعة الفيزيائية للكتلة بالبايت.
      *

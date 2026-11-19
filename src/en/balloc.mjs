@@ -260,7 +260,7 @@ export default class Balloc {
      * supported limit.
      */
     realloc(handler) {
-        
+
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
         const headerAddress = handler >>> 0;
         const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
@@ -305,23 +305,23 @@ export default class Balloc {
         this.recyclePush(oldBlockSize, dataAddress);
     }
 
-     /**
-     * Frees a memory block.
-     *
-     * The block's header is invalidated by zeroing its cookie, and its
-     * address is registered for later reuse. The data region
-     * is also returned to the recycling system, except when the block is
-     * exactly at the top of the `dataBus`; in that case, the `dataPointer` is simply
-     * rolled back, eliminating the region without creating an entry in the recycling
-     * list.
-     *
-     * @param {number} handler - Handle of the block to be freed.
-     * @returns {void}
-     * @throws {Error} If the handle is invalid, corrupted, or the block
-     * is borrowed via withView().
-     */
+    /**
+    * Frees a memory block.
+    *
+    * The block's header is invalidated by zeroing its cookie, and its
+    * address is registered for later reuse. The data region
+    * is also returned to the recycling system, except when the block is
+    * exactly at the top of the `dataBus`; in that case, the `dataPointer` is simply
+    * rolled back, eliminating the region without creating an entry in the recycling
+    * list.
+    *
+    * @param {number} handler - Handle of the block to be freed.
+    * @returns {void}
+    * @throws {Error} If the handle is invalid, corrupted, or the block
+    * is borrowed via withView().
+    */
     free(handler) {
-        
+
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
         const headerAddress = handler >>> 0;
         const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
@@ -954,22 +954,39 @@ export default class Balloc {
      * @throws {TypeError} If callback is not a function.
      * @throws {Error} If the handle is invalid or already borrowed.
      */
-    withView(handler, callback) {
+    withView(...args) {
+        if (args.length < 2) throw new TypeError("At least one handler and one callback are required");
+
+        const callback = args.pop();
         if (typeof callback !== "function") throw new TypeError("callback must be a function");
 
-        const meta = this.extractMetadata(handler, this.metadata);
-        const flagsAddress = meta.headerAddress + FLAGS_OFFSET;
-        const flags = this.controlBus[flagsAddress];
+        const handlers = args;
+        const metadata = handlers.map(handler => this.extractMetadata(handler, {}));
+        const headers = metadata.map(meta => meta.headerAddress);
 
-        if (flags & VIEW_LOCK) throw new Error("Block is already borrowed");
+        if (new Set(headers).size !== headers.length) throw new Error("Duplicate handler");
 
-        this.controlBus[flagsAddress] = flags | VIEW_LOCK;
+        const flags = headers.map(header => this.controlBus[header + FLAGS_OFFSET]);
+
+        if (flags.some(flag => flag & VIEW_LOCK)) throw new Error("Block is already borrowed");
+
+        const acquired = [];
 
         try {
-            const rawAddress = meta.dataAddress >>> this.wordShift;
-            return callback(this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied));
+            for (const header of headers) {
+                const address = header + FLAGS_OFFSET;
+                this.controlBus[address] |= VIEW_LOCK;
+                acquired.push(address);
+            }
+
+            const views = metadata.map(meta => {
+                const rawAddress = meta.dataAddress >>> this.wordShift;
+                return this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied);
+            });
+
+            return callback(...views);
         } finally {
-            this.controlBus[flagsAddress] &= ~VIEW_LOCK;
+            for (const address of acquired) this.controlBus[address] &= ~VIEW_LOCK;
         }
     }
 
@@ -1036,29 +1053,29 @@ export default class Balloc {
 
     // ========== Operations between blocks=============
 
-     /**
-     * Copies occupied elements from one block to another.
-     *
-     * Copying starts at the first element of `source` and the first slot of
-     * `destination`. The quantity effectively copied is limited by the number of
-     * occupied elements in the source, the physical capacity of the destination, and the
-     * limit specified in `slots`.
-     *
-     * Destination occupancy is increased, when necessary, to cover the
-     * copied elements. Destination capacity is unchanged.
-     *
-     * The operation uses `Uint8Array.prototype.copyWithin()` on the `dataBus`,
-     * therefore the return value is the `Uint8Array` representing the data bus.
-     *
-     * @param {number} source - Source block handle.
-     * @param {number} destination - Destination block handle.
-     * @param {number} [slots=UNKNOWN] - Maximum number of elements to copy.
-     * `UNKNOWN` represents the sentinel value used not to impose an
-     * additional limit.
-     * @returns {Uint8Array} The `dataBus` after the operation.
-     * @throws {Error} If handles are invalid, corrupted,
-     * or the destination block is borrowed via withView().
-     */
+    /**
+    * Copies occupied elements from one block to another.
+    *
+    * Copying starts at the first element of `source` and the first slot of
+    * `destination`. The quantity effectively copied is limited by the number of
+    * occupied elements in the source, the physical capacity of the destination, and the
+    * limit specified in `slots`.
+    *
+    * Destination occupancy is increased, when necessary, to cover the
+    * copied elements. Destination capacity is unchanged.
+    *
+    * The operation uses `Uint8Array.prototype.copyWithin()` on the `dataBus`,
+    * therefore the return value is the `Uint8Array` representing the data bus.
+    *
+    * @param {number} source - Source block handle.
+    * @param {number} destination - Destination block handle.
+    * @param {number} [slots=UNKNOWN] - Maximum number of elements to copy.
+    * `UNKNOWN` represents the sentinel value used not to impose an
+    * additional limit.
+    * @returns {Uint8Array} The `dataBus` after the operation.
+    * @throws {Error} If handles are invalid, corrupted,
+    * or the destination block is borrowed via withView().
+    */
     copy(source, destination, slots = UNKNOWN) {
         /** @type {Metadata} */
         const metaA = {};
