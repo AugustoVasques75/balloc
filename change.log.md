@@ -1,5 +1,6 @@
 # version 1.3
 - Update `withView()` method as requested in https://github.com/AugustoVasques75/balloc/issues/6
+- Add `shrink()` method due to feature request https://github.com/AugustoVasques75/balloc/issues/5
 
 # version 1.2
 - Fix duplicate memory allocation in constructor - https://github.com/AugustoVasques75/balloc/issues/4

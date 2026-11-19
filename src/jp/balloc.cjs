@@ -213,19 +213,38 @@ var Balloc = class {
     this.recyclePush(oldBlockSize, dataAddress);
   }
   /**
-  * メモリブロックを解放します。
-  *
-  * ブロックのヘッダーはクッキーをゼロに設定することで無効化され、
-  * そのアドレスは後で再利用するために登録されます。ブロックが `dataBus` の
-  * 正確なトップにある場合を除き、データ領域も再利用システムに戻されます。
-  * トップにある場合は、`dataPointer` が単に巻き戻され、再利用リストに
-  * エントリを作成せずに領域が破棄されます。
-  *
-  * @param {number} handler - 解放するブロックのハンドル。
-  * @returns {void}
-  * @throws {Error} ハンドルが無効、破損している場合、またはブロックが
-  * withView() によって借用されている場合。
-  */
+   * ブロックのアドレスとハンドルを維持したまま、使用中の要素を格納できる
+   * 最小の2のべき乗の容量まで縮小します。
+   *
+   * ブロックが dataBus のトップにある場合、dataPointer を後退させます。
+   * それ以外の場合、解放された末尾領域を2のべき乗の領域に分割し、
+   * 各領域を再利用リストに戻します。
+   *
+   * @param {number} handler - 縮小するブロックのハンドル。
+   * @returns {void}
+   * @throws {Error} ハンドルが無効または破損している場合、あるいは
+   * withView() によってブロックが借用されている場合。
+   */
+  shrink(handler) {
+    const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
+    const newCapacity = Math.max(1, 32 - Math.clz32(Math.max(2, meta.occupied) - 1));
+    if (newCapacity >= meta.capacityExponent) return;
+    const oldBlockSize = meta.byteCapacity;
+    const newBlockSize = 2 ** newCapacity * this.wordSize;
+    const oldEnd = meta.dataAddress + oldBlockSize;
+    this.controlAdapter.setUint8(meta.headerAddress + CAPACITY_OFFSET, newCapacity);
+    if (oldEnd === this.dataPointer) {
+      this.dataPointer = meta.dataAddress + newBlockSize;
+      return;
+    }
+    let address = meta.dataAddress + newBlockSize;
+    for (let exponent = newCapacity; exponent < meta.capacityExponent; exponent++) {
+      const segmentSize = 2 ** exponent * this.wordSize;
+      this.recyclePush(segmentSize, address);
+      address += segmentSize;
+    }
+  }
   free(handler) {
     const generation = handler / ROTATE_32BITS & CLAMP_11BITS;
     const headerAddress = handler >>> 0;

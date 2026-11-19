@@ -219,20 +219,38 @@ var Balloc = class {
     this.recyclePush(oldBlockSize, dataAddress);
   }
   /**
-  * Libera um bloco de memória.
-  *
-  * O header do bloco é invalidado pelo zeramento de seu cookie e seu
-  * endereço é registrado para posterior reutilização. A região de dados
-  * também é devolvida ao sistema de reciclagem, exceto quando o bloco está
-  * exatamente no topo do `dataBus`; nesse caso, o `dataPointer` é simplesmente
-  * retrocedido, eliminando a região sem criar uma entrada na lista de
-  * reciclagem.
-  *
-  * @param {number} handler - Handler do bloco a ser liberado.
-  * @returns {void}
-  * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco
-  * estiver emprestado por withView().
-  */
+   * Reduz um bloco à menor capacidade em potência de dois capaz de comportar
+   * seus elementos ocupados, preservando seu endereço e handler.
+   *
+   * Se o bloco estiver no topo do dataBus, dataPointer será recuado.
+   * Caso contrário, a cauda liberada será dividida em regiões de potências
+   * de dois, e cada região será devolvida à lista de reciclagem.
+   *
+   * @param {number} handler - Handler do bloco a ser reduzido.
+   * @returns {void}
+   * @throws {Error} Se o handler for inválido, estiver corrompido ou estiver
+   * emprestado por withView().
+   */
+  shrink(handler) {
+    const meta = this.extractMetadata(handler, this.metadata);
+    this.assertNotBorrowed(meta.headerAddress);
+    const newCapacity = Math.max(1, 32 - Math.clz32(Math.max(2, meta.occupied) - 1));
+    if (newCapacity >= meta.capacityExponent) return;
+    const oldBlockSize = meta.byteCapacity;
+    const newBlockSize = 2 ** newCapacity * this.wordSize;
+    const oldEnd = meta.dataAddress + oldBlockSize;
+    this.controlAdapter.setUint8(meta.headerAddress + CAPACITY_OFFSET, newCapacity);
+    if (oldEnd === this.dataPointer) {
+      this.dataPointer = meta.dataAddress + newBlockSize;
+      return;
+    }
+    let address = meta.dataAddress + newBlockSize;
+    for (let exponent = newCapacity; exponent < meta.capacityExponent; exponent++) {
+      const segmentSize = 2 ** exponent * this.wordSize;
+      this.recyclePush(segmentSize, address);
+      address += segmentSize;
+    }
+  }
   free(handler) {
     const generation = handler / ROTATE_32BITS & CLAMP_11BITS;
     const headerAddress = handler >>> 0;

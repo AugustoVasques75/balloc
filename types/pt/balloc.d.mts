@@ -129,21 +129,20 @@ export default class Balloc {
      */
     realloc(handler: number): void;
     /**
-    * Libera um bloco de memória.
-    *
-    * O header do bloco é invalidado pelo zeramento de seu cookie e seu
-    * endereço é registrado para posterior reutilização. A região de dados
-    * também é devolvida ao sistema de reciclagem, exceto quando o bloco está
-    * exatamente no topo do `dataBus`; nesse caso, o `dataPointer` é simplesmente
-    * retrocedido, eliminando a região sem criar uma entrada na lista de
-    * reciclagem.
-    *
-    * @param {number} handler - Handler do bloco a ser liberado.
-    * @returns {void}
-    * @throws {Error} Se o handler for inválido, estiver corrompido ou o bloco
-    * estiver emprestado por withView().
-    */
-    free(handler: number): void;
+     * Reduz um bloco à menor capacidade em potência de dois capaz de comportar
+     * seus elementos ocupados, preservando seu endereço e handler.
+     *
+     * Se o bloco estiver no topo do dataBus, dataPointer será recuado.
+     * Caso contrário, a cauda liberada será dividida em regiões de potências
+     * de dois, e cada região será devolvida à lista de reciclagem.
+     *
+     * @param {number} handler - Handler do bloco a ser reduzido.
+     * @returns {void}
+     * @throws {Error} Se o handler for inválido, estiver corrompido ou estiver
+     * emprestado por withView().
+     */
+    shrink(handler: number): void;
+    free(handler: any): void;
     /**
      * [USO INTERNO]
      * Insere uma região livre na lista de reciclagem.

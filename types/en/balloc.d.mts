@@ -129,6 +129,19 @@ export default class Balloc {
      */
     realloc(handler: number): void;
     /**
+     * Reduces a block to the smallest power-of-two capacity that can contain
+     * its occupied elements, while preserving its address and handler.
+     *
+     * If the block is at the top of the dataBus, dataPointer is moved backward.
+     * Otherwise, the released tail is split into power-of-two regions and each
+     * region is returned to the recycling list.
+     *
+     * @param {number} handler - Handler of the block to shrink.
+     * @returns {void}
+     * @throws {Error} If the handler is invalid, corrupted, or borrowed by withView().
+     */
+    shrink(handler: number): void;
+    /**
     * Frees a memory block.
     *
     * The block's header is invalidated by zeroing its cookie, and its
