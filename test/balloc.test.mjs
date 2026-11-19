@@ -990,4 +990,5 @@ describe("Balloc", () => {
             expect(() => memory.withView(handler, () => { })).not.toThrow();
         });
 
+    });
 });
