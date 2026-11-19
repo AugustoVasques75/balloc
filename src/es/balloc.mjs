@@ -305,58 +305,18 @@ export default class Balloc {
     }
 
     /**
-     * Reduces a block to the smallest power-of-two capacity that can contain
-     * its occupied elements, while preserving its address and handler.
+     * Reduce un bloque a la menor capacidad potencia de dos que pueda contener
+     * sus elementos ocupados, preservando su dirección y su handler.
      *
-     * If the block is at the top of the dataBus, dataPointer is moved backward.
-     * Otherwise, the released tail is split into power-of-two regions and each
-     * region is returned to the recycling list.
+     * Si el bloque está en la parte superior de dataBus, dataPointer retrocede.
+     * De lo contrario, la cola liberada se divide en regiones de potencias
+     * de dos y cada región se devuelve a la lista de reciclaje.
      *
-     * @param {number} handler - Handler of the block to shrink.
+     * @param {number} handler - Handler del bloque que se va a reducir.
      * @returns {void}
-     * @throws {Error} If the handler is invalid, corrupted, or borrowed by withView().
+     * @throws {Error} Si el handler no es válido, está dañado o está prestado
+     * mediante withView().
      */
-    shrink(handler) {
-        const meta = this.extractMetadata(handler, this.metadata);
-        this.assertNotBorrowed(meta.headerAddress);
-
-        const newCapacity = Math.max(1, 32 - Math.clz32(Math.max(2, meta.occupied) - 1));
-        if (newCapacity >= meta.capacityExponent) return;
-
-        const oldBlockSize = meta.byteCapacity;
-        const newBlockSize = (2 ** newCapacity) * this.wordSize;
-        const oldEnd = meta.dataAddress + oldBlockSize;
-
-        this.controlAdapter.setUint8(meta.headerAddress + CAPACITY_OFFSET, newCapacity);
-
-        if (oldEnd === this.dataPointer) {
-            this.dataPointer = meta.dataAddress + newBlockSize;
-            return;
-        }
-
-        let address = meta.dataAddress + newBlockSize;
-        for (let exponent = newCapacity; exponent < meta.capacityExponent; exponent++) {
-            const segmentSize = (2 ** exponent) * this.wordSize;
-            this.recyclePush(segmentSize, address);
-            address += segmentSize;
-        }
-    }
-
-    /**
-    * Libera un bloque de memoria.
-    *
-    * La cabecera del bloque se invalida poniendo su cookie a cero y su
-    * dirección se registra para su posterior reutilización. La región de datos
-    * también se devuelve al sistema de reciclaje, excepto cuando el bloque está
-    * exactamente en la cima del `dataBus`; en ese caso, el puntero `dataPointer` simplemente
-    * retrocede, eliminando la región sin crear una entrada en la lista de
-    * reciclaje.
-    *
-    * @param {number} handler - Descriptor del bloque a liberar.
-    * @returns {void}
-    * @throws {Error} Si el descriptor no es válido, está corrupto o el bloque
-    * está prestado mediante `withView()`.
-    */
     free(handler) {
 
         const generation = (handler / ROTATE_32BITS) & CLAMP_11BITS;
