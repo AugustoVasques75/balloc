@@ -595,7 +595,7 @@ Borrows one or more blocks for the duration of a synchronous callback. Supply on
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `...args` | `...(number | Function)[]` | One or more block handlers followed by the callback. |
+| `...args` | `...(number or Function)[]` | One or more block handlers followed by the callback. |
 
 ### Return
 
@@ -1357,13 +1357,13 @@ Generation participates in cookie validation. Consequently, an invalid handler o
 | Lifecycle | `free()` | `void`|
 | Lifecycle | `gc()` | `void`|
 | Stack | `push()` | `boolean`|
-| Stack | `pop()` | `number | undefined` |
-| Stack | `peek()` | `number | undefined` |
+| Stack | `pop()` | `number \| undefined` |
+| Stack | `peek()` | `number \| undefined` |
 | Queue | `nudge()` | `boolean`|
-| Queue | `pull()` | `number | undefined` |
-| Queue | `head()` | `number | undefined` |
+| Queue | `pull()` | `number \| undefined` |
+| Queue | `head()` | `number \| undefined` |
 | Access | `has()` | `boolean`|
-| Access | `get()` | `number | undefined` |
+| Access | `get()` | `number \| undefined` |
 | Access | `set()` | `boolean`|
 | Access | `clear()` | `void`|
 | Access | `fill()` | `void`|
