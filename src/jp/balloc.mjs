@@ -513,7 +513,6 @@ export default class Balloc {
      * 要素は、最後尾の占有要素の直後の最初の空き位置に書き込まれます。
      * ブロックの占有数は、その容量内に空きスペースが存在する場合にのみインクリメントされます。
      *
-     * @param {number} handler - ブロックのハンドル。
      * @param {number} value - 挿入する値。
      * @returns {boolean} 値が挿入された場合は `true`、ブロックに利用可能な
      * スペースがない場合は `false`。
@@ -912,10 +911,10 @@ export default class Balloc {
      * サブビューにも適用されます。
      *
      * @param {number} handler - ブロックのハンドル。
-     * @param {Function} callback - 共有された TypedArray を受け取る関数。
+     * @param {...(number|Function)} args - 1つ以上のブロックハンドルと、その後に続くコールバック。
      * @returns {*} コールバックによって生成された戻り値。
-     * @throws {TypeError} コールバックが関数ではない場合。
-     * @throws {Error} ハンドルが無効であるか、すでに借用されている場合。
+     * @throws {TypeError} ハンドルが指定されていない場合、またはコールバックが関数ではない場合。
+     * @throws {Error} いずれかのハンドルが無効、重複、または借用中の場合。
      */
     withView(...args) {
         if (args.length < 2) throw new TypeError("At least one handler and one callback are required");
@@ -933,13 +932,12 @@ export default class Balloc {
 
         if (flags.some(flag => flag & VIEW_LOCK)) throw new Error("Block is already borrowed");
 
-        const acquired = [];
+        let acquiredCount = 0;
 
         try {
             for (const header of headers) {
-                const address = header + FLAGS_OFFSET;
-                this.controlBus[address] |= VIEW_LOCK;
-                acquired.push(address);
+                this.controlBus[header + FLAGS_OFFSET] |= VIEW_LOCK;
+                acquiredCount++;
             }
 
             const views = metadata.map(meta => {
@@ -949,7 +947,9 @@ export default class Balloc {
 
             return callback(...views);
         } finally {
-            for (const address of acquired) this.controlBus[address] &= ~VIEW_LOCK;
+            for (let i = 0; i < acquiredCount; i++) {
+                this.controlBus[headers[i] + FLAGS_OFFSET] &= ~VIEW_LOCK;
+            }
         }
     }
 
