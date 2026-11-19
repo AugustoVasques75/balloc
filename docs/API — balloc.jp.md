@@ -23,42 +23,71 @@
 Balloc
 ├── インスタンス化
 │   └── constructor()
+│
 ├── ブロックのライフサイクル
 │   ├── alloc()
 │   ├── realloc()
 │   ├── shrink()
 │   ├── free()
 │   └── gc()
+│
 ├── 線形データ構造
-│   ├── Stack: push(), pop(), peek()
-│   └── Queue: nudge(), pull(), head()
+│   ├── Stack
+│   │   ├── push()
+│   │   ├── pop()
+│   │   └── peek()
+│   └── Queue
+│       ├── nudge()
+│       ├── pull()
+│       └── head()
+│
 ├── コンテンツへのアクセス
-│   ├── has(), get(), set(), clear()
+│   ├── has()
+│   ├── get()
+│   ├── set()
+│   ├── clear()
+│   ├── fill()
+│   ├── fillAll()
+│   ├── put()
+│   ├── pick()
 │   ├── indexOf()
 │   ├── lastIndexOf()
-│   ├── fill(), fillAll(), put(), pick()
 │   └── withView()
+│
 ├── 容量と使用量
 │   ├── byteSize()
 │   ├── occupied()
-│   └── length()
+│   ├── length()
 │   └── isFull()
+│
 ├── ブロック間の操作
-│   ├── copy(), copyWithin(), append()
-│   └── clone(), swap()
+│   ├── copy()
+│   ├── copyWithin()
+│   ├── append()
+│   ├── clone()
+│   └── swap()
+│
 ├── シリアライズ
 │   ├── dump()
 │   └── load()
+│
 ├── 診断と使用状況
 │   ├── recycleCount()
 │   ├── recycleBytes
 │   ├── allocatedBytes
 │   ├── unallocatedBytes
 │   └── fragmentationRatio
+│
 └── 内部処理
-    ├── 再利用: recyclePush(), recyclePop()
-    ├── 拡張: grow(), headerGrow()
-    └── ユーティリティ: extractMetadata(), bakeCookie()
+    ├── 再利用
+    │   ├── recyclePush()
+    │   └── recyclePop()
+    ├── 拡張
+    │   ├── grow()
+    │   └── headerGrow()
+    └── ユーティリティ
+        ├── extractMetadata()
+        └── bakeCookie()
 ```
 
 ---
