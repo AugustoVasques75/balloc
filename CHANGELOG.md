@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.3.1] - 2026-11-19
 
+### Added
+- `borrow` field to metadata internal struct.
+
+### Changed
+- `extractMetadata()` now can decode borrow flag.
+- `assertNotBorrowed()` is a candidate for deprecation.
+
 ### Fixed
-- `withView()` - refactoring the multi-pass borrow algorithm into a single-pass algorithm.
+- `withView()`  refactoring the multi-pass borrow algorithm into a single-pass algorithm.
 
 ## [1.3.0] - 2026-11-19
 
