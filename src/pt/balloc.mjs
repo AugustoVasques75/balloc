@@ -993,21 +993,22 @@ export default class Balloc {
 
         try {
             for(let i = 0; i < lastIndex; i++) {
-                const metadata = this.extractMetadata(handler, {});
+                const metadata = this.extractMetadata(args[i], {});
 
-                if (metadata.borrowed) throw new Error("Block is already borrowed"); 
+                
                 if (Object.hasOwn(lookup, metadata.headerAddress)) throw new Error("Duplicate handler");
+                if (metadata.borrowed) throw new Error("Block is already borrowed"); 
                 
                 this.controlBus[metadata.headerAddress + FLAGS_OFFSET] |= VIEW_LOCK;
 
                 const rawAddress = metadata.dataAddress >>> this.wordShift;
-                lookup[metadata.headerAddress] = i;     
-                views.push(this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied))
+                lookup[metadata.headerAddress] = metadata.headerAddress;     
+                views.push(this.auxiliary.subarray(rawAddress, rawAddress + metadata.occupied))
             }
             return callback(...views);
         } finally {
-            for (const meta in lookup) {
-                this.controlBus[headers+ FLAGS_OFFSET] &= ~VIEW_LOCK;
+            for (const key in lookup) {
+                this.controlBus[lookup[key] + FLAGS_OFFSET] &= ~VIEW_LOCK;
             }
         }
     }
