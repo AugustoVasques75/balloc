@@ -90,6 +90,7 @@ const CLAMP_11BITS = 0x7FF >>> 0;
  * @property {number} generation - Generación a la que pertenece el descriptor.
  * @property {number} headerAddress - Dirección de la cabecera (header) dentro del bus de control (`controlBus`).
  * @property {number} occupied - Número de elementos ocupados en el bloque.
+ * @property {number} borrowed - Indicador de si el bloque ha sido prestado por withView().
  */
 
 /**
