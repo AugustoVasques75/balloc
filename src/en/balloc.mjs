@@ -90,6 +90,7 @@ const CLAMP_11BITS = 0x7FF >>> 0;
  * @property {number} generation - Generation to which the handle belongs.
  * @property {number} headerAddress - Address of the header within the controlBus.
  * @property {number} occupied - Number of occupied elements in the block.
+ * @property {number} borrowed - Flag indicating whether the block has been borrowed by withView().
  */
 
 /**
