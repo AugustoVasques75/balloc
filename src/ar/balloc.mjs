@@ -90,6 +90,7 @@ const CLAMP_11BITS = 0x7FF >>> 0;
  * @property {number} generation - الجيل الذي ينتمي إليه المقبض.
  * @property {number} headerAddress - عنوان الترويسة (Header) داخل controlBus.
  * @property {number} occupied - عدد العناصر المشغولة في الكتلة.
+ * @property {number} borrowed - علامة تشير إلى ما إذا كانت الكتلة قد أُعيرت بواسطة withView().
  */
 
 /**
