@@ -90,6 +90,7 @@ const CLAMP_11BITS = 0x7FF >>> 0;
  * @property {number} generation - ハンドルが属する世代。
  * @property {number} headerAddress - controlBus内におけるヘッダーのアドレス。
  * @property {number} occupied - ブロック内の占有要素数。
+ * @property {number} borrowed - ブロックが withView() によって借用されているかどうかを示すフラグ。
  */
 
 /**
