@@ -90,6 +90,7 @@ const CLAMP_11BITS = 0x7FF >>> 0;
  * @property {number} generation - Geração cujo o handler pertence.
  * @property {number} headerAddress - Endereço do header dentro do controlBus.
  * @property {number} occupied - Número de elementos ocupados no bloco.
+ * @property {number} borrowed - Flag indicando se o foi emprestado por withView().
  */
 
 /**
