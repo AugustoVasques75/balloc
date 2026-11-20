@@ -90,6 +90,7 @@ const CLAMP_11BITS = 0x7FF >>> 0;
  * @property {number} generation - 句柄所属的代数（generation）。
  * @property {number} headerAddress - controlBus 内的标头地址。
  * @property {number} occupied - 块中已占用的元素数量。
+ * @property {number} borrowed - 指示该内存块是否已被 withView() 借用的标志。
  */
 
 /**
