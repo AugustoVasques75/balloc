@@ -24,6 +24,10 @@ export type Metadata = {
      * - Número de elementos ocupados en el bloque.
      */
     occupied: number;
+    /**
+     * - Indicador de si el bloque ha sido prestado por withView().
+     */
+    borrowed: number;
 };
 /**
  * Asignador tipo Bump de doble bus con pila de eco y recolección de basura ReBump.

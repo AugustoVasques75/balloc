@@ -24,6 +24,10 @@ export type Metadata = {
      * - ブロック内の占有要素数。
      */
     occupied: number;
+    /**
+     * - ブロックが withView() によって借用されているかどうかを示すフラグ。
+     */
+    borrowed: number;
 };
 /**
  * ReBump GCを備えたEcho Stackデュアルバス・バンプアロケータ。

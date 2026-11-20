@@ -24,6 +24,10 @@ export type Metadata = {
      * - 块中已占用的元素数量。
      */
     occupied: number;
+    /**
+     * - 指示该内存块是否已被 withView() 借用的标志。
+     */
+    borrowed: number;
 };
 /**
  * 带有 ReBump GC 的 Echo 栈双总线指针碰撞分配器（Dual Bus Bump Allocator）。

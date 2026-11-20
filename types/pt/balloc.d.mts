@@ -25,7 +25,7 @@ export type Metadata = {
      */
     occupied: number;
     /**
-     * - Flag indicando se o foi emprestado por withView().
+     * - Flag indicando se o foi o bloco foi emprestado por withView().
      */
     borrowed: number;
 };
