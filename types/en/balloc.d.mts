@@ -24,6 +24,10 @@ export type Metadata = {
      * - Number of occupied elements in the block.
      */
     occupied: number;
+    /**
+     * - Flag indicating whether the block has been borrowed by withView().
+     */
+    borrowed: number;
 };
 /**
  * Echo Stack Dual Bus Bump Allocator with ReBump GC.

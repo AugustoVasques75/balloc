@@ -784,28 +784,25 @@ var Balloc = class {
    */
   withView(...args) {
     if (args.length < 2) throw new TypeError("At least one handler and one callback are required");
-    const callback = args.pop();
+    const lastIndex = args.length - 1;
+    const callback = args[lastIndex];
     if (typeof callback !== "function") throw new TypeError("callback must be a function");
-    const handlers = args;
-    const metadata = handlers.map((handler) => this.extractMetadata(handler, {}));
-    const headers = metadata.map((meta) => meta.headerAddress);
-    if (new Set(headers).size !== headers.length) throw new Error("Duplicate handler");
-    const flags = headers.map((header) => this.controlBus[header + FLAGS_OFFSET]);
-    if (flags.some((flag) => flag & VIEW_LOCK)) throw new Error("Block is already borrowed");
-    let acquiredCount = 0;
+    const lookup = /* @__PURE__ */ Object.create(null);
+    const views = [];
     try {
-      for (const header of headers) {
-        this.controlBus[header + FLAGS_OFFSET] |= VIEW_LOCK;
-        acquiredCount++;
+      for (let i = 0; i < lastIndex; i++) {
+        const metadata = this.extractMetadata(args[i], {});
+        if (Object.hasOwn(lookup, metadata.headerAddress)) throw new Error("Duplicate handler");
+        if (metadata.borrowed) throw new Error("Block is already borrowed");
+        this.controlBus[metadata.headerAddress + FLAGS_OFFSET] |= VIEW_LOCK;
+        const rawAddress = metadata.dataAddress >>> this.wordShift;
+        lookup[metadata.headerAddress] = metadata.headerAddress;
+        views.push(this.auxiliary.subarray(rawAddress, rawAddress + metadata.occupied));
       }
-      const views = metadata.map((meta) => {
-        const rawAddress = meta.dataAddress >>> this.wordShift;
-        return this.auxiliary.subarray(rawAddress, rawAddress + meta.occupied);
-      });
       return callback(...views);
     } finally {
-      for (let i = 0; i < acquiredCount; i++) {
-        this.controlBus[headers[i] + FLAGS_OFFSET] &= ~VIEW_LOCK;
+      for (const key in lookup) {
+        this.controlBus[lookup[key] + FLAGS_OFFSET] &= ~VIEW_LOCK;
       }
     }
   }
@@ -1170,6 +1167,7 @@ var Balloc = class {
     out.capacityExponent = this.controlAdapter.getUint8(out.headerAddress + CAPACITY_OFFSET);
     out.byteCapacity = (1 << out.capacityExponent >>> 0) * this.wordSize;
     out.occupied = this.controlAdapter.getUint32(out.headerAddress + OCCUPIED_OFFSET, IS_LITTLE_ENDIAN);
+    out.borrowed = this.controlAdapter.getUint32(out.headerAddress + FLAGS_OFFSET, IS_LITTLE_ENDIAN) & VIEW_LOCK;
     return out;
   }
   /**
