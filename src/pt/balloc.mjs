@@ -990,26 +990,30 @@ export default class Balloc {
         if (typeof callback !== "function") throw new TypeError("callback must be a function");
 
         const lookup = Object.create(null);
+        const acquired = [];
         const views = [];
 
         try {
-            for(let i = 0; i < lastIndex; i++) {
-                const metadata = this.extractMetadata(args[i], {});
+            for (let i = 0; i < lastIndex; i++) {
+                const metadata = this.extractMetadata(args[i], this.metadata);
+                const headerAddr = metadata.headerAddress;
 
-                
-                if (Object.hasOwn(lookup, metadata.headerAddress)) throw new Error("Duplicate handler");
-                if (metadata.borrowed) throw new Error("Block is already borrowed"); 
-                
-                this.controlBus[metadata.headerAddress + FLAGS_OFFSET] |= VIEW_LOCK;
+
+                if (Object.hasOwn(lookup, headerAddr)) throw new Error("Duplicate handler");
+                if (metadata.borrowed) throw new Error("Block is already borrowed");
+
+                this.controlBus[headerAddr + FLAGS_OFFSET] |= VIEW_LOCK;
 
                 const rawAddress = metadata.dataAddress >>> this.wordShift;
-                lookup[metadata.headerAddress] = metadata.headerAddress;     
+                lookup[headerAddr] = true;
+                acquired.push(headerAddr);
+
                 views.push(this.auxiliary.subarray(rawAddress, rawAddress + metadata.occupied))
             }
             return callback(...views);
         } finally {
-            for (const key in lookup) {
-                this.controlBus[lookup[key] + FLAGS_OFFSET] &= ~VIEW_LOCK;
+            for (let i = 0; i < acquired.length; i++) {
+                this.controlBus[acquired[i] + FLAGS_OFFSET] &= ~VIEW_LOCK;
             }
         }
     }
@@ -1451,7 +1455,7 @@ export default class Balloc {
         out.capacityExponent = this.controlAdapter.getUint8(out.headerAddress + CAPACITY_OFFSET);
         out.byteCapacity = (1 << out.capacityExponent >>> 0) * this.wordSize;
         out.occupied = this.controlAdapter.getUint32(out.headerAddress + OCCUPIED_OFFSET, IS_LITTLE_ENDIAN);
-        out.borrowed = this.controlAdapter.getUint32(out.headerAddress  + FLAGS_OFFSET, IS_LITTLE_ENDIAN) & VIEW_LOCK;
+        out.borrowed = this.controlAdapter.getUint32(out.headerAddress + FLAGS_OFFSET, IS_LITTLE_ENDIAN) & VIEW_LOCK;
 
         return out;
     }
