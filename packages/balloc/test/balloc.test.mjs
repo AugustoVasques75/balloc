@@ -2,6 +2,41 @@ import { describe, it, expect } from "vitest";
 import Balloc from "../src/pt/balloc.mjs";
 
 describe("Balloc", () => {
+    describe("loadData", () => {
+        it("delegates data ingestion to the adapter and returns its handler", () => {
+            const memory = new Balloc(64, "8u");
+            const adapter = {
+                load(allocator) {
+                    const handler = allocator.alloc(4);
+                    allocator.put(handler, [10, 20, 30]);
+                    return handler;
+                }
+            };
+
+            const handler = memory.loadData(adapter);
+
+            expect(memory.pick(handler)).toEqual(new Uint8Array([10, 20, 30]));
+            expect(memory.occupied(handler)).toBe(3);
+        });
+
+        it("passes the current allocator instance to the adapter", () => {
+            const memory = new Balloc();
+            const load = vi.fn(() => 123);
+
+            expect(memory.loadData({ load })).toBe(123);
+            expect(load).toHaveBeenCalledOnce();
+            expect(load).toHaveBeenCalledWith(memory);
+        });
+
+        it("rejects adapters that do not implement load()", () => {
+            const memory = new Balloc();
+
+            for (const adapter of [null, undefined, {}, { load: 1 }]) {
+                expect(() => memory.loadData(adapter)).toThrow(TypeError);
+            }
+        });
+    });
+
     describe("constructor", () => {
         it.each([2, 4, 8, 16, 32, 64, 128, 256])("reserva exatamente %i bytes quando size é potência de dois", (size) => {
             const memory = new Balloc(size, "8u", 16);
