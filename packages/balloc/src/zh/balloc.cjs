@@ -181,10 +181,13 @@ var Balloc = class {
     const occupied = this.controlAdapter.getUint32(headerAddress + OCCUPIED_OFFSET, IS_LITTLE_ENDIAN);
     const capacity = this.controlAdapter.getUint8(headerAddress + CAPACITY_OFFSET);
     const cookie = this.controlAdapter.getUint8(headerAddress + COOKIE_OFFSET);
+    const borrowed = this.controlAdapter.getUint8(headerAddress + FLAGS_OFFSET) & VIEW_LOCK;
     if (cookie !== this.bakeCookie(headerAddress, generation)) {
       throw new Error("Invalid or corrupted handle");
     }
-    this.assertNotBorrowed(headerAddress);
+    if (borrowed) {
+      throw new Error("Block is borrowed");
+    }
     if (capacity >= 31) throw new AggregateError([new Error("Can\xB4t reallocate handler."), new RangeError("Capacity has reached its limit.")], "Internal Error.");
     const newCapacity = capacity + 1;
     const newBlockSize = (1 << newCapacity >>> 0) * this.wordSize;
@@ -220,7 +223,7 @@ var Balloc = class {
    */
   shrink(handler) {
     const meta = this.extractMetadata(handler, this.metadata);
-    this.assertNotBorrowed(meta.headerAddress);
+    if (meta.borrowed) throw new Error("Block is borrowed");
     const newCapacity = Math.max(1, 32 - Math.clz32(Math.max(2, meta.occupied) - 1));
     if (newCapacity >= meta.capacityExponent) return;
     const oldBlockSize = meta.byteCapacity;
@@ -244,10 +247,13 @@ var Balloc = class {
     const dataAddress = this.controlAdapter.getUint32(headerAddress + ADDRESS_OFFSET, IS_LITTLE_ENDIAN);
     const capacity = this.controlAdapter.getUint8(headerAddress + CAPACITY_OFFSET);
     const cookie = this.controlAdapter.getUint8(headerAddress + COOKIE_OFFSET);
+    const borrowed = this.controlAdapter.getUint8(headerAddress + FLAGS_OFFSET) & VIEW_LOCK;
     if (cookie !== this.bakeCookie(headerAddress, generation)) {
       throw new Error("Invalid or corrupted handle");
     }
-    this.assertNotBorrowed(headerAddress);
+    if (borrowed) {
+      throw new Error("Block is borrowed");
+    }
     const blockSize = (1 << capacity >>> 0) * this.wordSize;
     this.controlAdapter.setUint8(headerAddress + COOKIE_OFFSET, 0);
     if (this.echoPointer + 4 <= this.controlBus.byteLength) {
@@ -410,7 +416,7 @@ var Balloc = class {
    */
   push(handler, value) {
     const meta = this.extractMetadata(handler, this.metadata);
-    this.assertNotBorrowed(meta.headerAddress);
+    if (meta.borrowed) throw new Error("Block is borrowed");
     if ((meta.occupied + 1) * this.wordSize > meta.byteCapacity) return false;
     this.writer(meta.dataAddress + meta.occupied * this.wordSize, value, IS_LITTLE_ENDIAN);
     this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied + 1, IS_LITTLE_ENDIAN);
@@ -428,7 +434,7 @@ var Balloc = class {
    */
   pop(handler) {
     const meta = this.extractMetadata(handler, this.metadata);
-    this.assertNotBorrowed(meta.headerAddress);
+    if (meta.borrowed) throw new Error("Block is borrowed");
     if (meta.occupied === 0) return void 0;
     this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, meta.occupied - 1, IS_LITTLE_ENDIAN);
     return this.reader(meta.dataAddress + (meta.occupied - 1) * this.wordSize, IS_LITTLE_ENDIAN);
@@ -461,7 +467,7 @@ var Balloc = class {
    */
   nudge(handler, value) {
     const meta = this.extractMetadata(handler, this.metadata);
-    this.assertNotBorrowed(meta.headerAddress);
+    if (meta.borrowed) throw new Error("Block is borrowed");
     if ((meta.occupied + 1) * this.wordSize > meta.byteCapacity) return false;
     this.dataBus.copyWithin(meta.dataAddress + this.wordSize, meta.dataAddress, meta.dataAddress + meta.occupied * this.wordSize);
     this.writer(meta.dataAddress, value, IS_LITTLE_ENDIAN);
@@ -481,7 +487,7 @@ var Balloc = class {
    */
   pull(handler) {
     const meta = this.extractMetadata(handler, this.metadata);
-    this.assertNotBorrowed(meta.headerAddress);
+    if (meta.borrowed) throw new Error("Block is borrowed");
     if (meta.occupied === 0) return void 0;
     const result = this.reader(meta.dataAddress, IS_LITTLE_ENDIAN);
     this.dataBus.copyWithin(meta.dataAddress, meta.dataAddress + this.wordSize, meta.dataAddress + meta.occupied * this.wordSize);
@@ -587,7 +593,7 @@ var Balloc = class {
    */
   set(handler, index, value) {
     const meta = this.extractMetadata(handler, this.metadata);
-    this.assertNotBorrowed(meta.headerAddress);
+    if (meta.borrowed) throw new Error("Block is borrowed");
     if (index < 0 || index >= meta.occupied) return false;
     this.writer(meta.dataAddress + index * this.wordSize, value, IS_LITTLE_ENDIAN);
     return true;
@@ -606,7 +612,7 @@ var Balloc = class {
    */
   clear(handler, value = 0) {
     const meta = this.extractMetadata(handler, this.metadata);
-    this.assertNotBorrowed(meta.headerAddress);
+    if (meta.borrowed) throw new Error("Block is borrowed");
     const slots = meta.byteCapacity / this.wordSize;
     const rawAddress = meta.dataAddress >>> this.wordShift;
     this.auxiliary.fill(value, rawAddress, rawAddress + slots);
@@ -630,7 +636,7 @@ var Balloc = class {
    */
   fill(handler, value, start = 0, end = null) {
     const meta = this.extractMetadata(handler, this.metadata);
-    this.assertNotBorrowed(meta.headerAddress);
+    if (meta.borrowed) throw new Error("Block is borrowed");
     const slots = meta.byteCapacity / this.wordSize;
     const lastIndex = end ?? slots;
     if (start > lastIndex) {
@@ -658,7 +664,7 @@ var Balloc = class {
    */
   fillAll(handler, value) {
     const meta = this.extractMetadata(handler, this.metadata);
-    this.assertNotBorrowed(meta.headerAddress);
+    if (meta.borrowed) throw new Error("Block is borrowed");
     const rawAddress = meta.dataAddress >>> this.wordShift;
     const capacityElements = meta.byteCapacity / this.wordSize;
     this.auxiliary.fill(value, rawAddress, rawAddress + capacityElements);
@@ -681,7 +687,7 @@ var Balloc = class {
    */
   put(handler, data) {
     const meta = this.extractMetadata(handler, this.metadata);
-    this.assertNotBorrowed(meta.headerAddress);
+    if (meta.borrowed) throw new Error("Block is borrowed");
     const rawAddress = meta.dataAddress >>> this.wordShift;
     const length = Math.min(1 << meta.capacityExponent >>> 0, data.length);
     if (Array.isArray(data)) {
@@ -735,21 +741,24 @@ var Balloc = class {
     const callback = args[lastIndex];
     if (typeof callback !== "function") throw new TypeError("callback must be a function");
     const lookup = /* @__PURE__ */ Object.create(null);
+    const acquired = [];
     const views = [];
     try {
       for (let i = 0; i < lastIndex; i++) {
-        const metadata = this.extractMetadata(args[i], {});
-        if (Object.hasOwn(lookup, metadata.headerAddress)) throw new Error("Duplicate handler");
+        const metadata = this.extractMetadata(args[i], this.metadata);
+        const headerAddr = metadata.headerAddress;
+        if (Object.hasOwn(lookup, headerAddr)) throw new Error("Duplicate handler");
         if (metadata.borrowed) throw new Error("Block is already borrowed");
-        this.controlBus[metadata.headerAddress + FLAGS_OFFSET] |= VIEW_LOCK;
+        this.controlBus[headerAddr + FLAGS_OFFSET] |= VIEW_LOCK;
         const rawAddress = metadata.dataAddress >>> this.wordShift;
-        lookup[metadata.headerAddress] = metadata.headerAddress;
+        lookup[headerAddr] = true;
+        acquired.push(headerAddr);
         views.push(this.auxiliary.subarray(rawAddress, rawAddress + metadata.occupied));
       }
       return callback(...views);
     } finally {
-      for (const key in lookup) {
-        this.controlBus[lookup[key] + FLAGS_OFFSET] &= ~VIEW_LOCK;
+      for (let i = 0; i < acquired.length; i++) {
+        this.controlBus[acquired[i] + FLAGS_OFFSET] &= ~VIEW_LOCK;
       }
     }
   }
@@ -828,7 +837,7 @@ var Balloc = class {
     const metaB = {};
     this.extractMetadata(source, metaA);
     this.extractMetadata(destination, metaB);
-    this.assertNotBorrowed(metaB.headerAddress);
+    if (metaB.borrowed) throw new Error("Block is borrowed");
     const maxSlotsDest = Math.floor(metaB.byteCapacity / this.wordSize);
     const slotsToCopy = Math.min(metaA.occupied, maxSlotsDest, slots);
     const newOccupied = Math.max(metaB.occupied, slotsToCopy);
@@ -855,7 +864,7 @@ var Balloc = class {
    */
   copyWithin(handler, target, start, length) {
     const meta = this.extractMetadata(handler, this.metadata);
-    this.assertNotBorrowed(meta.headerAddress);
+    if (meta.borrowed) throw new Error("Block is borrowed");
     const slots = Math.floor(meta.byteCapacity / this.wordSize);
     target = Math.trunc(target);
     start = Math.trunc(start);
@@ -892,7 +901,7 @@ var Balloc = class {
     const metaSource = {};
     this.extractMetadata(target, metaTarget);
     this.extractMetadata(source, metaSource);
-    this.assertNotBorrowed(metaTarget.headerAddress);
+    if (metaTarget.borrowed) throw new Error("Block is borrowed");
     const available = metaTarget.byteCapacity / this.wordSize - metaTarget.occupied;
     const count = Math.min(available, metaSource.occupied);
     if (count === 0) return 0;
@@ -940,8 +949,8 @@ var Balloc = class {
     const metaB = {};
     this.extractMetadata(source, metaA);
     this.extractMetadata(target, metaB);
-    this.assertNotBorrowed(metaA.headerAddress);
-    this.assertNotBorrowed(metaB.headerAddress);
+    if (metaA.borrowed) throw new Error("Block is borrowed");
+    if (metaB.borrowed) throw new Error("Block is borrowed");
     this.controlAdapter.setUint32(metaA.headerAddress + ADDRESS_OFFSET, metaB.dataAddress, IS_LITTLE_ENDIAN);
     this.controlAdapter.setUint32(metaB.headerAddress + ADDRESS_OFFSET, metaA.dataAddress, IS_LITTLE_ENDIAN);
     this.controlAdapter.setUint8(metaA.headerAddress + CAPACITY_OFFSET, metaB.capacityExponent);
@@ -1037,7 +1046,8 @@ var Balloc = class {
    * @returns {void}
    * @throws {Error} 如果块正通过 withView() 被借用。
    * @private
-   */
+   * @deprecated
+  */
   assertNotBorrowed(headerAddress) {
     if (this.controlBus[headerAddress + FLAGS_OFFSET] & VIEW_LOCK) {
       throw new Error("Block is borrowed");

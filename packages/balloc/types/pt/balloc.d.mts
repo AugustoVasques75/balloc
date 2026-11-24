@@ -661,6 +661,7 @@ export default class Balloc {
      */
     load(serialized: Uint8Array | ArrayBuffer): number;
     /**
+     * [OBSOLETO]
      * Impede operações de modificação sobre um bloco emprestado.
      *
      * Verifica a flag VIEW_LOCK no header associado ao endereço informado.
@@ -668,6 +669,7 @@ export default class Balloc {
      * @param {number} headerAddress - Endereço do header no controlBus.
      * @returns {void}
      * @throws {Error} Se o bloco estiver emprestado por withView().
+     * @deprecated
      * @private
      */
     private assertNotBorrowed;

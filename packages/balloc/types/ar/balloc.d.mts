@@ -651,7 +651,8 @@ export default class Balloc {
      * @returns {void}
      * @throws {Error} إذا كانت الكتلة معارة بواسطة withView().
      * @private
-     */
+     * @deprecated
+    */
     private assertNotBorrowed;
     /**
      * يمنع العمليات التي تستبدل أو تعيد تعيين dataBus

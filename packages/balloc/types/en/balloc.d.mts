@@ -677,7 +677,8 @@ export default class Balloc {
      * @returns {void}
      * @throws {Error} If the block is borrowed via withView().
      * @private
-     */
+     * @deprecated
+    */
     private assertNotBorrowed;
     /**
      * Prevents operations that replace or remap the dataBus

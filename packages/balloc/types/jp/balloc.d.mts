@@ -614,7 +614,8 @@ export default class Balloc {
      * @returns {void}
      * @throws {Error} ブロックが withView() によって借用されている場合。
      * @private
-     */
+     * @deprecated
+    */
     private assertNotBorrowed;
     /**
      * いずれかのセグメントが借用されている間、dataBus を置き換える

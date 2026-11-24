@@ -572,7 +572,8 @@ export default class Balloc {
      * @returns {void}
      * @throws {Error} 如果块正通过 withView() 被借用。
      * @private
-     */
+     * @deprecated
+    */
     private assertNotBorrowed;
     /**
      * 防止在存在任何借用片段时替换或重新映射 dataBus 的操作。

@@ -665,7 +665,8 @@ export default class Balloc {
      * @returns {void}
      * @throws {Error} Si el bloque está prestado mediante `withView()`.
      * @private
-     */
+     * @deprecated
+    */
     private assertNotBorrowed;
     /**
      * Impide operaciones que reemplazan o reasignan el `dataBus`
