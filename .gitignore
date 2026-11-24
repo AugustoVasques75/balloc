@@ -4,4 +4,4 @@ interop-data/
 node_modules/
 *.log
 .DS_Store
-.code-workspace
+*.code-workspace
