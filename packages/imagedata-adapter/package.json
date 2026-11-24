@@ -1,0 +1,43 @@
+{
+  "name": "imagedata-adapter",
+  "version": "0.1.0",
+  "description": "ImageData format adapter for Balloc",
+  "homepage": "https://github.com/AugustoVasques75/balloc",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AugustoVasques75/balloc.git",
+    "directory": "packages/imagedata-adapter"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/imagedata-adapter.mjs",
+  "types": "./types/imagedata-adapter.d.mts",
+  "exports": {
+    ".": {
+      "types": "./types/imagedata-adapter.d.mts",
+      "import": "./src/imagedata-adapter.mjs"
+    }
+  },
+  "files": [
+    "src/",
+    "types/",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "balloc",
+    "imagedata",
+    "adapter",
+    "typed-arrays",
+    "pixels"
+  ],
+  "dependencies": {
+    "balloc": "^1.4.0"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
