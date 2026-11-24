@@ -1386,7 +1386,7 @@ export default class Balloc {
      * @returns {void}
      * @throws {Error} إذا كانت الكتلة معارة بواسطة withView().
      * @private
-      * @deprecated
+     * @deprecated
     */
     assertNotBorrowed(headerAddress) {
         if (this.controlBus[headerAddress + FLAGS_OFFSET] & VIEW_LOCK) {
