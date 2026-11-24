@@ -1143,13 +1143,21 @@ var Balloc = class {
   }
   // ========== INTEGRATION AND DATA INGESTION ==========
   /**
-   * Delegates data ingestion to the supplied adapter.
+   * Loads data through a specialized adapter.
    *
-   * The operation is synchronous. The adapter must complete ingestion before returning and is responsible for reverting its own allocations if loading fails.
+   * The adapter receives this instance and uses its public API to allocate
+   * and populate the required blocks. Data organization and interpretation
+   * are the adapter's sole responsibility; Balloc only delegates the
+   * operation and returns the resulting handler.
    *
-   * @param {FormatAdapter} adapter - A synchronous adapter implementing load(allocator).
+   * The operation is synchronous. The adapter must complete ingestion before
+   * returning and is responsible for reverting its own allocations if
+   * loading fails.
+   *
+   * @param {FormatAdapter} adapter - Adapter implementing load(allocator).
    * @returns {number} Handler returned by the adapter.
    * @throws {TypeError} If the adapter does not implement load().
+   * @throws {Error} If the adapter rejects the subscribed infrastructure.
    */
   loadData(adapter) {
     if (!adapter || typeof adapter.load !== "function") throw new TypeError("adapter must implement load(allocator)");

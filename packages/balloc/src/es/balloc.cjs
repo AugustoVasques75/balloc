@@ -1131,13 +1131,21 @@ var Balloc = class {
   }
   // ========== INTEGRACIÓN E INGESTA DE DATOS ==========
   /**
-   * Delega la ingesta de datos al adaptador proporcionado.
+   * Carga datos mediante un adaptador especializado.
    *
-   * La operación es síncrona. El adaptador debe completar la ingesta antes de retornar y es responsable de revertir sus propias asignaciones si ocurre un error durante la carga.
+   * El adaptador recibe esta instancia y utiliza su API pública para asignar
+   * y completar los bloques necesarios. La organización y la interpretación
+   * de los datos son responsabilidad exclusiva del adaptador; Balloc solo
+   * delega la operación y devuelve el handler resultante.
+   *
+   * La operación es síncrona. El adaptador debe completar la ingesta antes
+   * de retornar y es responsable de revertir sus propias asignaciones si
+   * ocurre un error durante la carga.
    *
    * @param {FormatAdapter} adapter - Adaptador que implementa load(allocator).
    * @returns {number} Handler devuelto por el adaptador.
    * @throws {TypeError} Si el adaptador no implementa el método load().
+   * @throws {Error} Si el adaptador rechaza la infraestructura suscrita.
    */
   loadData(adapter) {
     if (!adapter || typeof adapter.load !== "function") throw new TypeError("adapter must implement load(allocator)");

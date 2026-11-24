@@ -1150,6 +1150,7 @@ var Balloc = class {
    * @param {FormatAdapter} adapter - Adaptador que implementa load(allocator).
    * @returns {number} Handler retornado pelo adaptador.
    * @throws {TypeError} Se o adaptador não implementar o método load().
+   * @throws {Error} Se o adaptador recusar a infraestrutura subscrita.
    */
   loadData(adapter) {
     if (!adapter || typeof adapter.load !== "function") throw new TypeError("adapter must implement load(allocator)");
