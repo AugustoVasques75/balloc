@@ -104,6 +104,15 @@ const isTypedArray = (val) => ArrayBuffer.isView(val) && !(val instanceof DataVi
 /**
  * مخصص الذاكرة المتقاطع ذو الحافتين مع مكدس صدى وإدارة النفايات ReBump.
  */
+/**
+ * عقد محوّل متزامن لإدخال البيانات.
+ *
+ * يتلقى المحوّل نسخة Balloc ويستخدم واجهتها العامة لتخزين البيانات، ثم يعيد المعالج الذي يحدد الكتلة الرئيسية.
+ *
+ * @typedef {Object} FormatAdapter
+ * @property {(allocator: Balloc) => number} load - يحمّل البيانات إلى المخصّص ويعيد المعالج المقابل.
+ */
+
 export default class Balloc {
 
     /**
@@ -1373,6 +1382,26 @@ export default class Balloc {
         this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, envelope.occupied, IS_LITTLE_ENDIAN);
 
         return handler;
+    }
+
+    // ========== التكامل وإدخال البيانات ==========
+
+    /**
+     * عقد محوّل متزامن لإدخال البيانات.
+     *
+     * يتلقى المحوّل نسخة Balloc ويستخدم واجهتها العامة لتخزين البيانات، ثم يعيد المعالج الذي يحدد الكتلة الرئيسية.
+     *
+     * La operación es síncrona. El adaptador debe completar la ingesta antes de
+     * regresar y es responsable de revertir sus propias asignaciones si ocurre
+     * un error durante la carga.
+     *
+     * @param {FormatAdapter} adapter - محوّل يطبّق load(allocator).
+     * @returns {number} المعالج الذي يعيده المحوّل.
+     * @throws {TypeError} إذا لم يطبّق المحوّل الدالة load().
+     */
+    loadData(adapter) {
+        if (!adapter || typeof adapter.load !== "function") throw new TypeError("adapter must implement load(allocator)");
+        return adapter.load(this);
     }
 
     // ============= الأدوات المساعدة (UTILITIES) ==============
