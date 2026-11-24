@@ -1308,13 +1308,9 @@ export default class Balloc {
     // ========== 数据集成与导入 ==========
 
     /**
-     * 用于数据导入的同步适配器契约。
+     * 将数据导入委托给指定的适配器。
      *
-     * 适配器接收 Balloc 实例，并使用其公共 API 存储数据，返回用于标识主内存块的句柄。
-     *
-     * La operación es síncrona. El adaptador debe completar la ingesta antes de
-     * regresar y es responsable de revertir sus propias asignaciones si ocurre
-     * un error durante la carga.
+     * 此操作为同步操作。适配器必须在返回前完成数据导入；如果加载过程中发生错误，适配器负责回滚自身的分配。
      *
      * @param {FormatAdapter} adapter - 实现 load(allocator) 的适配器。
      * @returns {number} 适配器返回的句柄。
@@ -1324,7 +1320,6 @@ export default class Balloc {
         if (!adapter || typeof adapter.load !== "function") throw new TypeError("adapter must implement load(allocator)");
         return adapter.load(this);
     }
-
     // ============= 工具 (UTILITIES) ==============
 
     /**
