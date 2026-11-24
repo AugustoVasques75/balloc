@@ -104,6 +104,15 @@ const isTypedArray = (val) => ArrayBuffer.isView(val) && !(val instanceof DataVi
 /**
  * 带有 ReBump GC 的 Echo 栈双总线指针碰撞分配器（Dual Bus Bump Allocator）。
  */
+/**
+ * 用于数据导入的同步适配器契约。
+ *
+ * 适配器接收 Balloc 实例，并使用其公共 API 存储数据，返回用于标识主内存块的句柄。
+ *
+ * @typedef {Object} FormatAdapter
+ * @property {(allocator: Balloc) => number} load - 将数据加载到分配器并返回相应的句柄。
+ */
+
 export default class Balloc {
 
     /**
@@ -1294,6 +1303,26 @@ export default class Balloc {
         this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, envelope.occupied, IS_LITTLE_ENDIAN);
 
         return handler;
+    }
+
+    // ========== 数据集成与导入 ==========
+
+    /**
+     * 用于数据导入的同步适配器契约。
+     *
+     * 适配器接收 Balloc 实例，并使用其公共 API 存储数据，返回用于标识主内存块的句柄。
+     *
+     * La operación es síncrona. El adaptador debe completar la ingesta antes de
+     * regresar y es responsable de revertir sus propias asignaciones si ocurre
+     * un error durante la carga.
+     *
+     * @param {FormatAdapter} adapter - 实现 load(allocator) 的适配器。
+     * @returns {number} 适配器返回的句柄。
+     * @throws {TypeError} 适配器未实现 load() 方法时。
+     */
+    loadData(adapter) {
+        if (!adapter || typeof adapter.load !== "function") throw new TypeError("adapter must implement load(allocator)");
+        return adapter.load(this);
     }
 
     // ============= 工具 (UTILITIES) ==============
