@@ -188,26 +188,7 @@ export default class Balloc {
 
     }
 
-    /**
-     * Carrega dados por meio de um adaptador especializado.
-     *
-     * O adaptador recebe esta instância e utiliza sua API pública para alocar
-     * e preencher os blocos necessários. A organização e a interpretação dos
-     * dados são responsabilidade exclusiva do adaptador; o Balloc apenas
-     * delega a operação e retorna o handler produzido.
-     *
-     * A operação é síncrona. O adaptador deve concluir a ingestão antes de
-     * retornar e é responsável por reverter suas próprias alocações caso
-     * ocorra uma falha durante o carregamento.
-     *
-     * @param {FormatAdapter} adapter - Adaptador que implementa load(allocator).
-     * @returns {number} Handler retornado pelo adaptador.
-     * @throws {TypeError} Se o adaptador não implementar o método load().
-     */
-    loadData(adapter) {
-        if (!adapter || typeof adapter.load !== "function") throw new TypeError("adapter must implement load(allocator)");
-        return adapter.load(this);
-    }
+
 
     // ========== ALOCAÇÃO ==========
 
@@ -1424,6 +1405,29 @@ export default class Balloc {
         this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, envelope.occupied, IS_LITTLE_ENDIAN);
 
         return handler;
+    }
+
+    // ========== INTEGRAÇÃO E INGESTÃO DE DADOS ========== 
+
+    /**
+     * Carrega dados por meio de um adaptador especializado.
+     *
+     * O adaptador recebe esta instância e utiliza sua API pública para alocar
+     * e preencher os blocos necessários. A organização e a interpretação dos
+     * dados são responsabilidade exclusiva do adaptador; o Balloc apenas
+     * delega a operação e retorna o handler produzido.
+     *
+     * A operação é síncrona. O adaptador deve concluir a ingestão antes de
+     * retornar e é responsável por reverter suas próprias alocações caso
+     * ocorra uma falha durante o carregamento.
+     *
+     * @param {FormatAdapter} adapter - Adaptador que implementa load(allocator).
+     * @returns {number} Handler retornado pelo adaptador.
+     * @throws {TypeError} Se o adaptador não implementar o método load().
+     */
+    loadData(adapter) {
+        if (!adapter || typeof adapter.load !== "function") throw new TypeError("adapter must implement load(allocator)");
+        return adapter.load(this);
     }
 
     // ============= UTILITÁRIOS ==============
