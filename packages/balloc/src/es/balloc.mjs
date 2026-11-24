@@ -104,6 +104,15 @@ const isTypedArray = (val) => ArrayBuffer.isView(val) && !(val instanceof DataVi
 /**
  * Asignador tipo Bump de doble bus con pila de eco y recolección de basura ReBump.
  */
+/**
+ * Contrato de un adaptador síncrono para la ingesta de datos.
+ *
+ * El adaptador recibe la instancia de Balloc y utiliza su API pública para almacenar los datos, devolviendo el handler que identifica el bloque principal.
+ *
+ * @typedef {Object} FormatAdapter
+ * @property {(allocator: Balloc) => number} load - Carga los datos en el asignador y devuelve el handler correspondiente.
+ */
+
 export default class Balloc {
 
     /**
@@ -1387,6 +1396,26 @@ export default class Balloc {
         this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, envelope.occupied, IS_LITTLE_ENDIAN);
 
         return handler;
+    }
+
+    // ========== INTEGRACIÓN E INGESTA DE DATOS ==========
+
+    /**
+     * Contrato de un adaptador síncrono para la ingesta de datos.
+     *
+     * El adaptador recibe la instancia de Balloc y utiliza su API pública para almacenar los datos, devolviendo el handler que identifica el bloque principal.
+     *
+     * La operación es síncrona. El adaptador debe completar la ingesta antes de
+     * regresar y es responsable de revertir sus propias asignaciones si ocurre
+     * un error durante la carga.
+     *
+     * @param {FormatAdapter} adapter - Adaptador que implementa load(allocator).
+     * @returns {number} Handler devuelto por el adaptador.
+     * @throws {TypeError} Si el adaptador no implementa el método load().
+     */
+    loadData(adapter) {
+        if (!adapter || typeof adapter.load !== "function") throw new TypeError("adapter must implement load(allocator)");
+        return adapter.load(this);
     }
 
     // ============= UTILIDADES (UTILITIES) ==============
