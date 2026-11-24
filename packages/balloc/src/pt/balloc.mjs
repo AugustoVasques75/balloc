@@ -102,6 +102,17 @@ const CLAMP_11BITS = 0x7FF >>> 0;
 const isTypedArray = (val) => ArrayBuffer.isView(val) && !(val instanceof DataView);
 
 /**
+ * Contrato de um adaptador síncrono para ingestão de dados.
+ *
+ * O adaptador recebe a instância do Balloc e utiliza sua API pública para
+ * armazenar os dados, retornando o handler que identifica o bloco principal.
+ *
+ * @typedef {Object} FormatAdapter
+ * @property {(allocator: Balloc) => number} load - Carrega os dados no alocador
+ * e retorna o handler correspondente.
+ */
+
+/**
  * Echo Stack Dual Bus Bump Allocator with ReBump GC.
  */
 export default class Balloc {
@@ -175,6 +186,27 @@ export default class Balloc {
             borrowed: 0 >>> 0
         };
 
+    }
+
+    /**
+     * Carrega dados por meio de um adaptador especializado.
+     *
+     * O adaptador recebe esta instância e utiliza sua API pública para alocar
+     * e preencher os blocos necessários. A organização e a interpretação dos
+     * dados são responsabilidade exclusiva do adaptador; o Balloc apenas
+     * delega a operação e retorna o handler produzido.
+     *
+     * A operação é síncrona. O adaptador deve concluir a ingestão antes de
+     * retornar e é responsável por reverter suas próprias alocações caso
+     * ocorra uma falha durante o carregamento.
+     *
+     * @param {FormatAdapter} adapter - Adaptador que implementa load(allocator).
+     * @returns {number} Handler retornado pelo adaptador.
+     * @throws {TypeError} Se o adaptador não implementar o método load().
+     */
+    loadData(adapter) {
+        if (!adapter || typeof adapter.load !== "function") throw new TypeError("adapter must implement load(allocator)");
+        return adapter.load(this);
     }
 
     // ========== ALOCAÇÃO ==========
