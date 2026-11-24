@@ -30,6 +30,13 @@ export type Metadata = {
     borrowed: number;
 };
 /**
+ * Contrato de um adaptador síncrono para ingestão de dados.
+ */
+export interface FormatAdapter {
+    load(allocator: Balloc): number;
+}
+
+/**
  * Echo Stack Dual Bus Bump Allocator with ReBump GC.
  */
 export default class Balloc {
@@ -107,6 +114,14 @@ export default class Balloc {
      * @throws {Error} Se for necessário expandir o `dataBus` enquanto houver
      * algum bloco emprestado por withView().
      */
+    /**
+     * Carrega dados por meio de um adaptador especializado.
+     *
+     * @param adapter Adaptador que utiliza a API pública do alocador.
+     * @returns Handler produzido pelo adaptador.
+     * @throws TypeError Se o adaptador não implementar load().
+     */
+    loadData(adapter: FormatAdapter): number;
     alloc(size?: number): number;
     /**
      * Expande a capacidade de um bloco para a próxima potência de dois.
