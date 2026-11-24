@@ -1308,13 +1308,19 @@ export default class Balloc {
     // ========== 数据集成与导入 ==========
 
     /**
-     * 将数据导入委托给指定的适配器。
+     * 通过专用适配器加载数据。
      *
-     * 此操作为同步操作。适配器必须在返回前完成数据导入；如果加载过程中发生错误，适配器负责回滚自身的分配。
+     * 适配器接收此实例，并使用其公共 API 分配和填充所需的内存块。
+     * 数据的组织和解释完全由适配器负责；Balloc 仅委托该操作并返回
+     * 适配器生成的句柄。
+     *
+     * 此操作为同步操作。适配器必须在返回前完成数据导入；如果加载
+     * 失败，适配器负责回滚自身的分配。
      *
      * @param {FormatAdapter} adapter - 实现 load(allocator) 的适配器。
      * @returns {number} 适配器返回的句柄。
      * @throws {TypeError} 适配器未实现 load() 方法时。
+     * @throws {Error} 适配器拒绝所提供的基础设施时。
      */
     loadData(adapter) {
         if (!adapter || typeof adapter.load !== "function") throw new TypeError("adapter must implement load(allocator)");
