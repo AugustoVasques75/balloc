@@ -1387,13 +1387,9 @@ export default class Balloc {
     // ========== التكامل وإدخال البيانات ==========
 
     /**
-     * عقد محوّل متزامن لإدخال البيانات.
+     * يفوّض إدخال البيانات إلى المحوّل المحدد.
      *
-     * يتلقى المحوّل نسخة Balloc ويستخدم واجهتها العامة لتخزين البيانات، ثم يعيد المعالج الذي يحدد الكتلة الرئيسية.
-     *
-     * La operación es síncrona. El adaptador debe completar la ingesta antes de
-     * regresar y es responsable de revertir sus propias asignaciones si ocurre
-     * un error durante la carga.
+     * العملية متزامنة. يجب على المحوّل إكمال إدخال البيانات قبل الإرجاع، وهو مسؤول عن التراجع عن تخصيصاته إذا حدث خطأ أثناء التحميل.
      *
      * @param {FormatAdapter} adapter - محوّل يطبّق load(allocator).
      * @returns {number} المعالج الذي يعيده المحوّل.
@@ -1403,7 +1399,6 @@ export default class Balloc {
         if (!adapter || typeof adapter.load !== "function") throw new TypeError("adapter must implement load(allocator)");
         return adapter.load(this);
     }
-
     // ============= الأدوات المساعدة (UTILITIES) ==============
 
     /**
