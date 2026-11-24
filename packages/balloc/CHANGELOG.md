@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refactored `withView()`.
 - Deprecated `assertNotBorrowed()`.
 
+## [1.3.1] - 2026-11-19
+
+### Added
+- Added the `borrowed` field to the internal `Metadata` structure.
+
+### Changed
+- `extractMetadata()` now decodes the `borrowed` flag.
+- Refactored `withView()` from a multi-pass to a single-pass borrow algorithm.
+
 ## [1.3.0] - 2026-11-19
 
 ### Added
