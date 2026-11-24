@@ -1413,13 +1413,9 @@ export default class Balloc {
     // ========== INTEGRATION AND DATA INGESTION ==========
 
     /**
-     * Synchronous adapter contract for data ingestion.
+     * Delegates data ingestion to the supplied adapter.
      *
-     * The adapter receives the Balloc instance and uses its public API to store data, returning the handler that identifies the primary block.
-     *
-     * La operación es síncrona. El adaptador debe completar la ingesta antes de
-     * regresar y es responsable de revertir sus propias asignaciones si ocurre
-     * un error durante la carga.
+     * The operation is synchronous. The adapter must complete ingestion before returning and is responsible for reverting its own allocations if loading fails.
      *
      * @param {FormatAdapter} adapter - A synchronous adapter implementing load(allocator).
      * @returns {number} Handler returned by the adapter.
@@ -1429,7 +1425,6 @@ export default class Balloc {
         if (!adapter || typeof adapter.load !== "function") throw new TypeError("adapter must implement load(allocator)");
         return adapter.load(this);
     }
-
     // ============= UTILITIES ==============
 
     /**
