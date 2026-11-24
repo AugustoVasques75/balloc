@@ -104,6 +104,15 @@ const isTypedArray = (val) => ArrayBuffer.isView(val) && !(val instanceof DataVi
 /**
  * ReBump GCを備えたEcho Stackデュアルバス・バンプアロケータ。
  */
+/**
+ * データ取り込み用の同期アダプター契約。
+ *
+ * アダプターは Balloc インスタンスを受け取り、その公開 API を使用してデータを格納し、主要ブロックを識別するハンドラーを返します。
+ *
+ * @typedef {Object} FormatAdapter
+ * @property {(allocator: Balloc) => number} load - アロケーターにデータを読み込み、対応するハンドラーを返します。
+ */
+
 export default class Balloc {
 
     /**
@@ -1336,6 +1345,26 @@ export default class Balloc {
         this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, envelope.occupied, IS_LITTLE_ENDIAN);
 
         return handler;
+    }
+
+    // ========== データ統合と取り込み ==========
+
+    /**
+     * データ取り込み用の同期アダプター契約。
+     *
+     * アダプターは Balloc インスタンスを受け取り、その公開 API を使用してデータを格納し、主要ブロックを識別するハンドラーを返します。
+     *
+     * La operación es síncrona. El adaptador debe completar la ingesta antes de
+     * regresar y es responsable de revertir sus propias asignaciones si ocurre
+     * un error durante la carga.
+     *
+     * @param {FormatAdapter} adapter - load(allocator) を実装するアダプター。
+     * @returns {number} アダプターが返すハンドラー。
+     * @throws {TypeError} アダプターが load() メソッドを実装していない場合。
+     */
+    loadData(adapter) {
+        if (!adapter || typeof adapter.load !== "function") throw new TypeError("adapter must implement load(allocator)");
+        return adapter.load(this);
     }
 
     // ============= ユーティリティ (UTILITIES) ==============
