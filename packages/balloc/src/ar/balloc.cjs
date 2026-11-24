@@ -1115,6 +1115,20 @@ var Balloc = class {
     this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, envelope.occupied, IS_LITTLE_ENDIAN);
     return handler;
   }
+  // ========== التكامل وإدخال البيانات ==========
+  /**
+   * يفوّض إدخال البيانات إلى المحوّل المحدد.
+   *
+   * العملية متزامنة. يجب على المحوّل إكمال إدخال البيانات قبل الإرجاع، وهو مسؤول عن التراجع عن تخصيصاته إذا حدث خطأ أثناء التحميل.
+   *
+   * @param {FormatAdapter} adapter - محوّل يطبّق load(allocator).
+   * @returns {number} المعالج الذي يعيده المحوّل.
+   * @throws {TypeError} إذا لم يطبّق المحوّل الدالة load().
+   */
+  loadData(adapter) {
+    if (!adapter || typeof adapter.load !== "function") throw new TypeError("adapter must implement load(allocator)");
+    return adapter.load(this);
+  }
   // ============= الأدوات المساعدة (UTILITIES) ==============
   /**
    * يمنع عمليات التعديل على كتلة معارة.

@@ -1036,6 +1036,20 @@ var Balloc = class {
     this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, envelope.occupied, IS_LITTLE_ENDIAN);
     return handler;
   }
+  // ========== 数据集成与导入 ==========
+  /**
+   * 将数据导入委托给指定的适配器。
+   *
+   * 此操作为同步操作。适配器必须在返回前完成数据导入；如果加载过程中发生错误，适配器负责回滚自身的分配。
+   *
+   * @param {FormatAdapter} adapter - 实现 load(allocator) 的适配器。
+   * @returns {number} 适配器返回的句柄。
+   * @throws {TypeError} 适配器未实现 load() 方法时。
+   */
+  loadData(adapter) {
+    if (!adapter || typeof adapter.load !== "function") throw new TypeError("adapter must implement load(allocator)");
+    return adapter.load(this);
+  }
   // ============= 工具 (UTILITIES) ==============
   /**
    * 防止对已借用的块进行修改操作。

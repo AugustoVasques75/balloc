@@ -1078,6 +1078,20 @@ var Balloc = class {
     this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, envelope.occupied, IS_LITTLE_ENDIAN);
     return handler;
   }
+  // ========== データ統合と取り込み ==========
+  /**
+   * 指定されたアダプターにデータの取り込みを委譲します。
+   *
+   * この操作は同期的に実行されます。アダプターは戻る前にデータの取り込みを完了し、読み込み中に失敗した場合は自身の割り当てを元に戻す責任を負います。
+   *
+   * @param {FormatAdapter} adapter - load(allocator) を実装するアダプター。
+   * @returns {number} アダプターが返すハンドラー。
+   * @throws {TypeError} アダプターが load() メソッドを実装していない場合。
+   */
+  loadData(adapter) {
+    if (!adapter || typeof adapter.load !== "function") throw new TypeError("adapter must implement load(allocator)");
+    return adapter.load(this);
+  }
   // ============= ユーティリティ (UTILITIES) ==============
   /**
    * 借用中のブロックに対する変更操作を禁止します。

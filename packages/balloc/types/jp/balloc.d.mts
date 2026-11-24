@@ -29,8 +29,22 @@ export type Metadata = {
      */
     borrowed: number;
 };
+export type FormatAdapter = {
+    /**
+     * - アロケーターにデータを読み込み、対応するハンドラーを返します。
+     */
+    load: (allocator: Balloc) => number;
+};
 /**
  * ReBump GCを備えたEcho Stackデュアルバス・バンプアロケータ。
+ */
+/**
+ * データ取り込み用の同期アダプター契約。
+ *
+ * アダプターは Balloc インスタンスを受け取り、その公開 API を使用してデータを格納し、主要ブロックを識別するハンドラーを返します。
+ *
+ * @typedef {Object} FormatAdapter
+ * @property {(allocator: Balloc) => number} load - アロケーターにデータを読み込み、対応するハンドラーを返します。
  */
 export default class Balloc {
     wordType: BucketType;
@@ -605,6 +619,16 @@ export default class Balloc {
      * @throws {Error} デコードされたデータのワード型がアロケータの設定と異なる場合。
      */
     load(serialized: Uint8Array | ArrayBuffer): number;
+    /**
+     * 指定されたアダプターにデータの取り込みを委譲します。
+     *
+     * この操作は同期的に実行されます。アダプターは戻る前にデータの取り込みを完了し、読み込み中に失敗した場合は自身の割り当てを元に戻す責任を負います。
+     *
+     * @param {FormatAdapter} adapter - load(allocator) を実装するアダプター。
+     * @returns {number} アダプターが返すハンドラー。
+     * @throws {TypeError} アダプターが load() メソッドを実装していない場合。
+     */
+    loadData(adapter: FormatAdapter): number;
     /**
      * 借用中のブロックに対する変更操作を禁止します。
      *

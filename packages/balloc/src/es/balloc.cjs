@@ -1129,6 +1129,20 @@ var Balloc = class {
     this.controlAdapter.setUint32(meta.headerAddress + OCCUPIED_OFFSET, envelope.occupied, IS_LITTLE_ENDIAN);
     return handler;
   }
+  // ========== INTEGRACIÓN E INGESTA DE DATOS ==========
+  /**
+   * Delega la ingesta de datos al adaptador proporcionado.
+   *
+   * La operación es síncrona. El adaptador debe completar la ingesta antes de retornar y es responsable de revertir sus propias asignaciones si ocurre un error durante la carga.
+   *
+   * @param {FormatAdapter} adapter - Adaptador que implementa load(allocator).
+   * @returns {number} Handler devuelto por el adaptador.
+   * @throws {TypeError} Si el adaptador no implementa el método load().
+   */
+  loadData(adapter) {
+    if (!adapter || typeof adapter.load !== "function") throw new TypeError("adapter must implement load(allocator)");
+    return adapter.load(this);
+  }
   // ============= UTILIDADES (UTILITIES) ==============
   /**
    * Impide operaciones de modificación sobre un bloque prestado.

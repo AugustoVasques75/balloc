@@ -29,13 +29,23 @@ export type Metadata = {
      */
     borrowed: number;
 };
+export type FormatAdapter = {
+    /**
+     * - Carrega os dados no alocador
+     * e retorna o handler correspondente.
+     */
+    load: (allocator: Balloc) => number;
+};
 /**
  * Contrato de um adaptador síncrono para ingestão de dados.
+ *
+ * O adaptador recebe a instância do Balloc e utiliza sua API pública para
+ * armazenar os dados, retornando o handler que identifica o bloco principal.
+ *
+ * @typedef {Object} FormatAdapter
+ * @property {(allocator: Balloc) => number} load - Carrega os dados no alocador
+ * e retorna o handler correspondente.
  */
-export interface FormatAdapter {
-    load(allocator: Balloc): number;
-}
-
 /**
  * Echo Stack Dual Bus Bump Allocator with ReBump GC.
  */
@@ -114,14 +124,6 @@ export default class Balloc {
      * @throws {Error} Se for necessário expandir o `dataBus` enquanto houver
      * algum bloco emprestado por withView().
      */
-    /**
-     * Carrega dados por meio de um adaptador especializado.
-     *
-     * @param adapter Adaptador que utiliza a API pública do alocador.
-     * @returns Handler produzido pelo adaptador.
-     * @throws TypeError Se o adaptador não implementar load().
-     */
-    loadData(adapter: FormatAdapter): number;
     alloc(size?: number): number;
     /**
      * Expande a capacidade de um bloco para a próxima potência de dois.
@@ -675,6 +677,23 @@ export default class Balloc {
      * @throws {Error} Se o tipo de palavra do dado decodificado divergir do configurado no alocador.
      */
     load(serialized: Uint8Array | ArrayBuffer): number;
+    /**
+     * Carrega dados por meio de um adaptador especializado.
+     *
+     * O adaptador recebe esta instância e utiliza sua API pública para alocar
+     * e preencher os blocos necessários. A organização e a interpretação dos
+     * dados são responsabilidade exclusiva do adaptador; o Balloc apenas
+     * delega a operação e retorna o handler produzido.
+     *
+     * A operação é síncrona. O adaptador deve concluir a ingestão antes de
+     * retornar e é responsável por reverter suas próprias alocações caso
+     * ocorra uma falha durante o carregamento.
+     *
+     * @param {FormatAdapter} adapter - Adaptador que implementa load(allocator).
+     * @returns {number} Handler retornado pelo adaptador.
+     * @throws {TypeError} Se o adaptador não implementar o método load().
+     */
+    loadData(adapter: FormatAdapter): number;
     /**
      * [OBSOLETO]
      * Impede operações de modificação sobre um bloco emprestado.

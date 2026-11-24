@@ -29,8 +29,22 @@ export type Metadata = {
      */
     borrowed: number;
 };
+export type FormatAdapter = {
+    /**
+     * - 将数据加载到分配器并返回相应的句柄。
+     */
+    load: (allocator: Balloc) => number;
+};
 /**
  * 带有 ReBump GC 的 Echo 栈双总线指针碰撞分配器（Dual Bus Bump Allocator）。
+ */
+/**
+ * 用于数据导入的同步适配器契约。
+ *
+ * 适配器接收 Balloc 实例，并使用其公共 API 存储数据，返回用于标识主内存块的句柄。
+ *
+ * @typedef {Object} FormatAdapter
+ * @property {(allocator: Balloc) => number} load - 将数据加载到分配器并返回相应的句柄。
  */
 export default class Balloc {
     wordType: BucketType;
@@ -563,6 +577,16 @@ export default class Balloc {
      * @throws {Error} 如果解码数据的字类型与分配器配置的不一致。
      */
     load(serialized: Uint8Array | ArrayBuffer): number;
+    /**
+     * 将数据导入委托给指定的适配器。
+     *
+     * 此操作为同步操作。适配器必须在返回前完成数据导入；如果加载过程中发生错误，适配器负责回滚自身的分配。
+     *
+     * @param {FormatAdapter} adapter - 实现 load(allocator) 的适配器。
+     * @returns {number} 适配器返回的句柄。
+     * @throws {TypeError} 适配器未实现 load() 方法时。
+     */
+    loadData(adapter: FormatAdapter): number;
     /**
      * 防止对已借用的块进行修改操作。
      *

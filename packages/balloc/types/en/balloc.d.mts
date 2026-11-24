@@ -29,8 +29,22 @@ export type Metadata = {
      */
     borrowed: number;
 };
+export type FormatAdapter = {
+    /**
+     * - Loads data into the allocator and returns the corresponding handler.
+     */
+    load: (allocator: Balloc) => number;
+};
 /**
  * Echo Stack Dual Bus Bump Allocator with ReBump GC.
+ */
+/**
+ * Synchronous adapter contract for data ingestion.
+ *
+ * The adapter receives the Balloc instance and uses its public API to store data, returning the handler that identifies the primary block.
+ *
+ * @typedef {Object} FormatAdapter
+ * @property {(allocator: Balloc) => number} load - Loads data into the allocator and returns the corresponding handler.
  */
 export default class Balloc {
     wordType: BucketType;
@@ -668,6 +682,16 @@ export default class Balloc {
      * @throws {Error} If the decoded data's word type differs from the allocator's configuration.
      */
     load(serialized: Uint8Array | ArrayBuffer): number;
+    /**
+     * Delegates data ingestion to the supplied adapter.
+     *
+     * The operation is synchronous. The adapter must complete ingestion before returning and is responsible for reverting its own allocations if loading fails.
+     *
+     * @param {FormatAdapter} adapter - A synchronous adapter implementing load(allocator).
+     * @returns {number} Handler returned by the adapter.
+     * @throws {TypeError} If the adapter does not implement load().
+     */
+    loadData(adapter: FormatAdapter): number;
     /**
      * Prevents modification operations on a borrowed block.
      *

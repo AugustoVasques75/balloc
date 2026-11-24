@@ -29,8 +29,22 @@ export type Metadata = {
      */
     borrowed: number;
 };
+export type FormatAdapter = {
+    /**
+     * - Carga los datos en el asignador y devuelve el handler correspondiente.
+     */
+    load: (allocator: Balloc) => number;
+};
 /**
  * Asignador tipo Bump de doble bus con pila de eco y recolección de basura ReBump.
+ */
+/**
+ * Contrato de un adaptador síncrono para la ingesta de datos.
+ *
+ * El adaptador recibe la instancia de Balloc y utiliza su API pública para almacenar los datos, devolviendo el handler que identifica el bloque principal.
+ *
+ * @typedef {Object} FormatAdapter
+ * @property {(allocator: Balloc) => number} load - Carga los datos en el asignador y devuelve el handler correspondiente.
  */
 export default class Balloc {
     wordType: BucketType;
@@ -656,6 +670,16 @@ export default class Balloc {
      * @throws {Error} Si el tipo de palabra del dato decodificado difiere del configurado en el asignador.
      */
     load(serialized: Uint8Array | ArrayBuffer): number;
+    /**
+     * Delega la ingesta de datos al adaptador proporcionado.
+     *
+     * La operación es síncrona. El adaptador debe completar la ingesta antes de retornar y es responsable de revertir sus propias asignaciones si ocurre un error durante la carga.
+     *
+     * @param {FormatAdapter} adapter - Adaptador que implementa load(allocator).
+     * @returns {number} Handler devuelto por el adaptador.
+     * @throws {TypeError} Si el adaptador no implementa el método load().
+     */
+    loadData(adapter: FormatAdapter): number;
     /**
      * Impide operaciones de modificación sobre un bloque prestado.
      *

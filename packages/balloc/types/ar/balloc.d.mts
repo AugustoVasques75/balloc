@@ -29,8 +29,22 @@ export type Metadata = {
      */
     borrowed: number;
 };
+export type FormatAdapter = {
+    /**
+     * - يحمّل البيانات إلى المخصّص ويعيد المعالج المقابل.
+     */
+    load: (allocator: Balloc) => number;
+};
 /**
  * مخصص الذاكرة المتقاطع ذو الحافتين مع مكدس صدى وإدارة النفايات ReBump.
+ */
+/**
+ * عقد محوّل متزامن لإدخال البيانات.
+ *
+ * يتلقى المحوّل نسخة Balloc ويستخدم واجهتها العامة لتخزين البيانات، ثم يعيد المعالج الذي يحدد الكتلة الرئيسية.
+ *
+ * @typedef {Object} FormatAdapter
+ * @property {(allocator: Balloc) => number} load - يحمّل البيانات إلى المخصّص ويعيد المعالج المقابل.
  */
 export default class Balloc {
     wordType: BucketType;
@@ -642,6 +656,16 @@ export default class Balloc {
      * @throws {Error} إذا كان نوع كلمة البيانات المفككة يختلف عن المُكوّن في المخصص.
      */
     load(serialized: Uint8Array | ArrayBuffer): number;
+    /**
+     * يفوّض إدخال البيانات إلى المحوّل المحدد.
+     *
+     * العملية متزامنة. يجب على المحوّل إكمال إدخال البيانات قبل الإرجاع، وهو مسؤول عن التراجع عن تخصيصاته إذا حدث خطأ أثناء التحميل.
+     *
+     * @param {FormatAdapter} adapter - محوّل يطبّق load(allocator).
+     * @returns {number} المعالج الذي يعيده المحوّل.
+     * @throws {TypeError} إذا لم يطبّق المحوّل الدالة load().
+     */
+    loadData(adapter: FormatAdapter): number;
     /**
      * يمنع عمليات التعديل على كتلة معارة.
      *
