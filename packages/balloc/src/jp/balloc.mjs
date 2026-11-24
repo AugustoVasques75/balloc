@@ -1350,13 +1350,9 @@ export default class Balloc {
     // ========== データ統合と取り込み ==========
 
     /**
-     * データ取り込み用の同期アダプター契約。
+     * 指定されたアダプターにデータの取り込みを委譲します。
      *
-     * アダプターは Balloc インスタンスを受け取り、その公開 API を使用してデータを格納し、主要ブロックを識別するハンドラーを返します。
-     *
-     * La operación es síncrona. El adaptador debe completar la ingesta antes de
-     * regresar y es responsable de revertir sus propias asignaciones si ocurre
-     * un error durante la carga.
+     * この操作は同期的に実行されます。アダプターは戻る前にデータの取り込みを完了し、読み込み中に失敗した場合は自身の割り当てを元に戻す責任を負います。
      *
      * @param {FormatAdapter} adapter - load(allocator) を実装するアダプター。
      * @returns {number} アダプターが返すハンドラー。
@@ -1366,7 +1362,6 @@ export default class Balloc {
         if (!adapter || typeof adapter.load !== "function") throw new TypeError("adapter must implement load(allocator)");
         return adapter.load(this);
     }
-
     // ============= ユーティリティ (UTILITIES) ==============
 
     /**
