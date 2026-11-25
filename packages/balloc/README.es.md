@@ -284,6 +284,7 @@ La documentación completa de la API está disponible en la carpeta [`./docs`](.
 Los métodos de la API están agrupados por afinidad:
 
 * Ciclo de vida
+* Adaptadores de ingesta de datos
 * Operaciones sobre pilas
 * Operaciones sobre colas
 * Operaciones sobre arrays
@@ -293,6 +294,35 @@ Los métodos de la API están agrupados por afinidad:
 * Funciones internas
 
 A continuación, un resumen de estos grupos:
+
+### Adaptadores de ingesta de datos
+
+`loadData(adapter)` delega la ingesta síncrona de datos a un adaptador que implementa el contrato `FormatAdapter`. El adaptador recibe el asignador y devuelve el handler numérico del bloque principal que carga.
+
+```ts
+interface FormatAdapter {
+    load(allocator: Balloc): number;
+}
+```
+
+El asignador no administra las transacciones del adaptador. Si el adaptador asigna varios bloques y una operación posterior falla, el propio adaptador es responsable de revertir esas asignaciones.
+
+Ejemplo:
+
+```js
+import Balloc from "balloc";
+
+const allocator = new Balloc(65535, "8u");
+const handler = allocator.loadData({
+    load(allocator) {
+        const handler = allocator.alloc(4);
+        allocator.put(handler, new Uint8Array([255, 0, 0, 255]));
+        return handler;
+    }
+});
+```
+
+Los adaptadores específicos de cada formato pueden publicarse de forma independiente. Por ejemplo, `imagedata-adapter` ingiere instancias `ImageData` en formato RGBA8.
 
 ### Ciclo de vida
 
