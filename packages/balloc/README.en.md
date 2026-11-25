@@ -85,28 +85,28 @@ The generation is used by the allocator's *cookie* validation mechanism to detec
 In Node.js, install the following NPM package:
 
 ```bash
-npm install Balloc
+npm install balloc
 
 ```
 
 In Bun, install:
 
 ```bash
-bun add Balloc
+bun add balloc
 
 ```
 
 In Deno, install:
 
 ```bash
-deno add npm:Balloc
+deno add npm:balloc
 
 ```
 
 Using Yarn:
 
 ```bash
-yarn add Balloc
+yarn add balloc
 
 ```
 
@@ -151,7 +151,7 @@ Chinese:   [https://cdn.jsdelivr.net/npm/Balloc/src/zh/Balloc.mjs](https://cdn.j
 ESM:
 
 ```js
-import Balloc from "Balloc";
+import Balloc from "balloc";
 
 const memory = new Balloc();
 
@@ -174,7 +174,7 @@ memory.free(handler);
 CJS:
 
 ```js
-const Balloc = require("Balloc").default;
+const Balloc = require("balloc").default;
 
 const memory = new Balloc();
 
@@ -311,6 +311,7 @@ The complete API documentation is available in the [`./docs`](./docs) directory 
 The API methods are grouped by affinity into the following categories:
 
 * Lifecycle
+* Data ingestion adapters
 * Stack operations
 * Queue operations
 * Array operations
@@ -320,6 +321,35 @@ The API methods are grouped by affinity into the following categories:
 * Internal functions
 
 The following is a summary of these groups:
+
+### Data ingestion adapters
+
+`loadData(adapter)` delegates synchronous data ingestion to an adapter implementing the `FormatAdapter` contract. The adapter receives the allocator and returns the numeric handler for the primary block it loads.
+
+```ts
+interface FormatAdapter {
+    load(allocator: Balloc): number;
+}
+```
+
+The allocator does not manage adapter transactions. If an adapter allocates multiple blocks and a later operation fails, rollback of those allocations is the adapter's responsibility.
+
+Example:
+
+```js
+import Balloc from "balloc";
+
+const allocator = new Balloc(65535, "8u");
+const handler = allocator.loadData({
+    load(allocator) {
+        const handler = allocator.alloc(4);
+        allocator.put(handler, new Uint8Array([255, 0, 0, 255]));
+        return handler;
+    }
+});
+```
+
+Format-specific adapters can be published independently. For example, `imagedata-adapter` ingests RGBA8 `ImageData` instances.
 
 ### Lifecycle
 
