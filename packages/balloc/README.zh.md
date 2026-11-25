@@ -283,6 +283,7 @@ Balloc 提供以下几种数据访问模型：
 API 方法按功能归为以下类别：
 
 * 生命周期管理
+* 数据摄取适配器
 * 栈操作
 * 队列操作
 * 数组操作
@@ -292,6 +293,35 @@ API 方法按功能归为以下类别：
 * 内部函数
 
 各类别概述如下。
+
+### 数据摄取适配器
+
+`loadData(adapter)` 将同步数据摄取委托给实现 `FormatAdapter` 契约的适配器。适配器接收分配器实例，并返回其所加载主数据块的数字句柄。
+
+```ts
+interface FormatAdapter {
+    load(allocator: Balloc): number;
+}
+```
+
+分配器不管理适配器事务。如果适配器分配了多个数据块，而后续操作失败，则由适配器负责回滚这些分配。
+
+示例：
+
+```js
+import Balloc from "balloc";
+
+const allocator = new Balloc(65535, "8u");
+const handler = allocator.loadData({
+    load(allocator) {
+        const handler = allocator.alloc(4);
+        allocator.put(handler, new Uint8Array([255, 0, 0, 255]));
+        return handler;
+    }
+});
+```
+
+特定格式的适配器可以独立发布。例如，`imagedata-adapter` 用于摄取 RGBA8 格式的 `ImageData` 实例。
 
 ### 生命周期管理
 
