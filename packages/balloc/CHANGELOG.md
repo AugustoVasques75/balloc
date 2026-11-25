@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.4.0] - 2026-11-23
 
+### Added
+- Added the `loadData(adapter)` method and the `FormatAdapter` ingestion contract.
+
 ### Changed
 - Refactored `withView()`.
 - Deprecated `assertNotBorrowed()`.
