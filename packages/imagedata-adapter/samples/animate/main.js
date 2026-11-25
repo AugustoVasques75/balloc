@@ -1,4 +1,4 @@
-import ImageDataAdapter from "../../src/imagedata-adapter.mjs";
+import ImageDataAdapter from "https://unpkg.com/imagedata-adapter";
 
 const canvas = document.querySelector("#screen");
 const status = document.querySelector("#status");
