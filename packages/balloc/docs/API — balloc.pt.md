@@ -33,6 +33,10 @@ Balloc
 │   ├── free()
 │   └── gc()
 │
+├── Ingestão de dados
+│   └── loadData()
+│
+│
 ├── Estruturas lineares
 │   ├── Stack
 │   │   ├── push()
@@ -405,6 +409,57 @@ memory.gc();
 ```
 
 O `gc()` não altera os handlers, pois os headers permanecem nos mesmos endereços; somente as regiões de dados são compactadas. A operação lança `Error` se houver qualquer empréstimo ativo por `withView()`, pois a compactação substitui o `dataBus` e invalidaria as views existentes.
+
+---
+
+## `loadData(adapter)`
+
+Delega a ingestão síncrona de dados a um adaptador específico do formato. O adaptador recebe a instância atual de `Balloc`, utiliza sua API pública para alocar e preencher blocos e retorna o handler numérico que identifica o bloco principal.
+
+Balloc não interpreta o formato de entrada nem gerencia transações do adaptador. A análise dos dados, a organização dos blocos e o rollback das alocações realizadas caso a ingestão falhe são responsabilidades do próprio adaptador. Exceções lançadas pelo adaptador são propagadas por `loadData()` sem alterações.
+
+### Contrato do adaptador
+
+```ts
+interface FormatAdapter {
+    load(allocator: Balloc): number;
+}
+```
+
+O método `load()` deve ser concluído de forma síncrona e retornar um handler de bloco válido. Retornar uma `Promise` não torna a ingestão assíncrona: `loadData()` não aguarda nem resolve essa Promise.
+
+### Parâmetros
+
+| Parâmetro | Tipo | Descrição |
+| --- | --- | --- |
+| `adapter` | `FormatAdapter` | Adaptador que implementa `load(allocator)`. |
+
+### Retorno
+
+```text
+number
+```
+
+O handler retornado pelo adaptador, que identifica o bloco principal carregado.
+
+### Exceções
+
+- `TypeError` — `adapter` está ausente ou não fornece um método `load()` chamável.
+- Qualquer exceção lançada pelo método `load()` do adaptador é propagada sem alterações.
+
+### Exemplo
+
+```js
+const handler = memory.loadData({
+    load(allocator) {
+        const handler = allocator.alloc(4);
+        allocator.put(handler, new Uint8Array([255, 0, 0, 255]));
+        return handler;
+    }
+});
+```
+
+Adaptadores específicos de formato podem ser distribuídos como pacotes independentes. Por exemplo, `imagedata-adapter` carrega instâncias `ImageData` RGBA8 em um alocador `Balloc`.
 
 ---
 
@@ -1291,6 +1346,7 @@ A geração participa da validação por cookie. Consequentemente, um handler in
 | Ciclo de vida | `shrink()` | `void` |
 | Ciclo de vida | `free()` | `void`<br> |
 | Ciclo de vida | `gc()` | `void`<br> |
+| Ingestão de dados | `loadData()` | `number` |
 | Stack | `push()` | `boolean`<br> |
 | Stack | `pop()` | `number | undefined`<br> |
 | Stack | `peek()` | `number | undefined`<br> |
