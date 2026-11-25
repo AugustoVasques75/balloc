@@ -31,6 +31,10 @@ Balloc
 │   ├── free()
 │   └── gc()
 │
+├── データの取り込み
+│   └── loadData()
+│
+│
 ├── 線形データ構造
 │   ├── Stack
 │   │   ├── push()
@@ -397,6 +401,57 @@ memory.gc();
 ```
 
 ヘッダーは同じアドレスに維持されるため、`gc()` はハンドラーを変更しません。コンパクションされるのはデータ領域のみです。
+
+---
+
+## `loadData(adapter)`
+
+形式固有のアダプターに同期的なデータ取り込みを委譲します。アダプターは現在の `Balloc` インスタンスを受け取り、その公開 API を使用してブロックを割り当ててデータを格納し、主要ブロックを識別する数値ハンドラーを返します。
+
+Balloc は入力形式を解釈せず、アダプターのトランザクションも管理しません。データの解析、ブロックの構成、取り込みに失敗した場合にアダプターが行った割り当てをロールバックする責任は、アダプター側にあります。アダプターがスローした例外は変更されずに `loadData()` から伝播します。
+
+### アダプターの契約
+
+```ts
+interface FormatAdapter {
+    load(allocator: Balloc): number;
+}
+```
+
+`load()` メソッドは同期的に完了し、有効なブロックハンドラーを返す必要があります。`Promise` を返しても非同期の取り込みにはなりません。`loadData()` は Promise を待機せず、解決もしません。
+
+### パラメーター
+
+| パラメーター | 型 | 説明 |
+| --- | --- | --- |
+| `adapter` | `FormatAdapter` | `load(allocator)` を実装するアダプター。 |
+
+### 戻り値
+
+```text
+number
+```
+
+アダプターが返す、読み込まれた主要ブロックを識別するハンドラー。
+
+### 例外
+
+- `TypeError` — `adapter` が指定されていないか、呼び出し可能な `load()` メソッドを提供していない場合。
+- アダプターの `load()` メソッドがスローした例外は変更されずに伝播します。
+
+### 使用例
+
+```js
+const handler = memory.loadData({
+    load(allocator) {
+        const handler = allocator.alloc(4);
+        allocator.put(handler, new Uint8Array([255, 0, 0, 255]));
+        return handler;
+    }
+});
+```
+
+形式固有のアダプターは独立したパッケージとして配布できます。たとえば `imagedata-adapter` は RGBA8 の `ImageData` インスタンスを `Balloc` アロケーターに読み込みます。
 
 ---
 
@@ -1161,6 +1216,7 @@ capacityBytes = 2 ** capacity × wordSize
 | ライフサイクル | `shrink()` | `void` |
 | ライフサイクル | `free()` | `void` |
 | ライフサイクル | `gc()` | `void` |
+| データ取り込み | `loadData()` | `number` |
 | Stack | `push()` | `boolean` |
 | Stack | `pop()` | `number \| undefined` |
 | Stack | `peek()` | `number \| undefined` |
