@@ -432,7 +432,7 @@ Si te gusta este proyecto y quieres apoyar su desarrollo:
 
 | QR Code Pix | Clave Copia y Pega / Aleatoria |
 | :---: | :--- |
-| ![Pix QR Code](https://raw.githubusercontent.com/AugustoVasques75/balloc/main/img/pix.png) | **Clave Aleatoria:**<br>`e87d773a-0b97-4410-8fc3-f7ec04cce6a2` |
+| ![Pix QR Code](https://raw.githubusercontent.com/AugustoVasques75/balloc/main/packages/balloc/img/pix.png) | **Clave Aleatoria:**<br>`e87d773a-0b97-4410-8fc3-f7ec04cce6a2` |
 
 ## Licencia
 
