@@ -31,6 +31,10 @@ Balloc
 │   ├── free()
 │   └── gc()
 │
+├── 数据导入
+│   └── loadData()
+│
+│
 ├── 线性结构
 │   ├── Stack
 │   │   ├── push()
@@ -399,6 +403,57 @@ memory.gc();
 ```
 
 `gc()` 不会更改句柄，因为 headers 仍位于原地址；它只压缩数据区域。
+
+---
+
+## `loadData(adapter)`
+
+将同步数据导入委托给特定格式的适配器。适配器接收当前的 `Balloc` 实例，使用其公共 API 分配并填充数据块，然后返回用于标识主数据块的数字句柄。
+
+Balloc 不解析输入格式，也不管理适配器事务。数据解析、数据块组织，以及导入失败时回滚适配器已执行的分配，均由适配器负责。适配器抛出的异常会由 `loadData()` 原样传播。
+
+### 适配器契约
+
+```ts
+interface FormatAdapter {
+    load(allocator: Balloc): number;
+}
+```
+
+`load()` 方法必须同步完成，并返回有效的数据块句柄。返回 `Promise` 并不会使导入变为异步：`loadData()` 不会等待或解析该 Promise。
+
+### 参数
+
+| 参数 | 类型 | 说明 |
+| --- | --- | --- |
+| `adapter` | `FormatAdapter` | 实现 `load(allocator)` 的适配器。 |
+
+### 返回值
+
+```text
+number
+```
+
+适配器返回的句柄，用于标识已加载的主数据块。
+
+### 异常
+
+- `TypeError` — `adapter` 缺失，或未提供可调用的 `load()` 方法。
+- 适配器的 `load()` 方法抛出的任何异常都会原样传播。
+
+### 示例
+
+```js
+const handler = memory.loadData({
+    load(allocator) {
+        const handler = allocator.alloc(4);
+        allocator.put(handler, new Uint8Array([255, 0, 0, 255]));
+        return handler;
+    }
+});
+```
+
+特定格式的适配器可以作为独立软件包发布。例如，`imagedata-adapter` 可将 RGBA8 `ImageData` 实例加载到 `Balloc` 分配器中。
 
 ---
 
@@ -1221,6 +1276,7 @@ generation 参与 cookie 校验。因此，如果句柄无效或其 header 已�
 | 生命周期 | `shrink()` | `void` |
 | 生命周期 | `free()` | `void` |
 | 生命周期 | `gc()` | `void` |
+| 数据导入 | `loadData()` | `number` |
 | Stack | `push()` | `boolean` |
 | Stack | `pop()` | `number \| undefined` |
 | Stack | `peek()` | `number \| undefined` |
