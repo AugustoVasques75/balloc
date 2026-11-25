@@ -71,12 +71,12 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 ` });
 
 const vertices = new Float32Array([
-    -1, -1, 0, 1,
-     1, -1, 1, 1,
-     1,  1, 1, 0,
-    -1, -1, 0, 1,
-     1,  1, 1, 0,
-    -1,  1, 0, 0
+-0.10125, -0.18, 0, 1,
+     0.10125, -0.18, 1, 1,
+     0.10125,  0.18, 1, 0,
+    -0.10125, -0.18, 0, 1,
+     0.10125,  0.18, 1, 0,
+    -0.10125,  0.18, 0, 0
 ]);
 const vertexBuffer = device.createBuffer({
     size: vertices.byteLength,
