@@ -283,6 +283,7 @@ APIの完全なドキュメントは[`./docs`](./docs)フォルダーにあり�
 APIメソッドは機能ごとに次のグループに分類されています。
 
 * ライフサイクル
+* データ取り込みアダプター
 * スタック操作
 * キュー操作
 * 配列操作
@@ -292,6 +293,35 @@ APIメソッドは機能ごとに次のグループに分類されています�
 * 内部関数
 
 各グループの概要は次のとおりです。
+
+### データ取り込みアダプター
+
+`loadData(adapter)` は、`FormatAdapter` 契約を実装するアダプターに同期的なデータ取り込みを委譲します。アダプターはアロケーターを受け取り、読み込んだ主要ブロックの数値ハンドラーを返します。
+
+```ts
+interface FormatAdapter {
+    load(allocator: Balloc): number;
+}
+```
+
+アロケーターはアダプターのトランザクションを管理しません。アダプターが複数のブロックを割り当てた後、後続の処理が失敗した場合、それらの割り当てをロールバックする責任はアダプター側にあります。
+
+例:
+
+```js
+import Balloc from "balloc";
+
+const allocator = new Balloc(65535, "8u");
+const handler = allocator.loadData({
+    load(allocator) {
+        const handler = allocator.alloc(4);
+        allocator.put(handler, new Uint8Array([255, 0, 0, 255]));
+        return handler;
+    }
+});
+```
+
+フォーマット固有のアダプターは個別に公開できます。たとえば、`imagedata-adapter` は RGBA8 形式の `ImageData` インスタンスを取り込みます。
 
 ### ライフサイクル
 
