@@ -1,10 +1,10 @@
-import Balloc from "https://esm.sh/balloc@1.4.0";
 import ImageDataAdapter from "../../src/imagedata-adapter.mjs";
 
 const canvas = document.querySelector("#screen");
 const status = document.querySelector("#status");
 const context = canvas.getContext("webgpu");
 if (!navigator.gpu || !context) throw new Error("WebGPU is not available in this browser.");
+if (typeof window.Balloc !== "function") throw new Error("Balloc failed to load from the classic script.");
 
 const adapter = await navigator.gpu.requestAdapter();
 if (!adapter) throw new Error("No compatible GPU adapter was found.");
@@ -12,7 +12,7 @@ const device = await adapter.requestDevice();
 const format = navigator.gpu.getPreferredCanvasFormat();
 context.configure({ device, format, alphaMode: "opaque" });
 
-const sprite = await createImageBitmap(await (await fetch("./sprites.svg")).blob());
+const sprite = await createImageBitmap(await (await fetch("./sprites.png")).blob());
 const sourceCanvas = document.createElement("canvas");
 sourceCanvas.width = sprite.width;
 sourceCanvas.height = sprite.height;
@@ -20,7 +20,7 @@ const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true }
 sourceContext.drawImage(sprite, 0, 0);
 const imageData = sourceContext.getImageData(0, 0, sprite.width, sprite.height);
 
-const allocator = new Balloc(65535, "8u");
+const allocator = new window.Balloc(65535, "8u");
 const imageAdapter = new ImageDataAdapter(imageData);
 const spriteHandler = allocator.loadData(imageAdapter);
 const { width: textureWidth, height: textureHeight } = imageAdapter.info;
@@ -71,7 +71,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 ` });
 
 const vertices = new Float32Array([
--0.10125, -0.18, 0, 1,
+    -0.10125, -0.18, 0, 1,
      0.10125, -0.18, 1, 1,
      0.10125,  0.18, 1, 0,
     -0.10125, -0.18, 0, 1,
@@ -158,8 +158,6 @@ function render(now) {
 
     x = Math.max(-0.82, Math.min(0.82, x));
     y = Math.max(-0.72, Math.min(0.72, y));
-    const halfHeight = 0.18;
-    const halfWidth = halfHeight * canvas.height / canvas.width;
     uniformData[0] = x;
     uniformData[1] = y;
     uniformData[4] = frame * frameWidth / textureWidth;
