@@ -85,28 +85,28 @@ A geração é utilizada pelo mecanismo de validação de *cookie* do alocador p
 No Node.js instale o seguinte pacote NPM:
 
 ```bash
-npm install Balloc
+npm install balloc
 
 ```
 
 No Bun instale:
 
 ```bash
-bun add Balloc
+bun add balloc
 
 ```
 
 No Deno instale:
 
 ```bash
-deno add npm:Balloc
+deno add npm:balloc
 
 ```
 
 Usando Yarn:
 
 ```bash
-yarn add Balloc
+yarn add balloc
 
 ```
 
@@ -151,7 +151,7 @@ Chinês:   [https://cdn.jsdelivr.net/npm/Balloc/src/zh/Balloc.mjs](https://cdn.j
 ESM:
 
 ```js
-import Balloc from "Balloc";
+import Balloc from "balloc";
 
 const memory = new Balloc();
 
@@ -174,7 +174,7 @@ memory.free(handler);
 CJS:
 
 ```js
-const Balloc = require("Balloc").default;
+const Balloc = require("balloc").default;
 
 const memory = new Balloc();
 
@@ -320,6 +320,35 @@ Os métodos da API estão agrupados por afinidade e os grupos são:
 * Funções internas
 
 Segue um resumo desses agrupamentos:
+
+### Adaptadores de ingestão de dados
+
+`loadData(adapter)` delega a ingestão síncrona de dados a um adaptador que implementa o contrato `FormatAdapter`. O adaptador recebe o alocador e retorna o handler numérico do bloco principal que carregou.
+
+```ts
+interface FormatAdapter {
+    load(allocator: Balloc): number;
+}
+```
+
+O alocador não gerencia transações dos adaptadores. Se um adaptador alocar vários blocos e uma operação posterior falhar, a reversão dessas alocações é responsabilidade do próprio adaptador.
+
+Exemplo:
+
+```js
+import Balloc from "balloc";
+
+const allocator = new Balloc(65535, "8u");
+const handler = allocator.loadData({
+    load(allocator) {
+        const handler = allocator.alloc(4);
+        allocator.put(handler, new Uint8Array([255, 0, 0, 255]));
+        return handler;
+    }
+});
+```
+
+Adaptadores específicos de formato podem ser publicados independentemente. Por exemplo, `imagedata-adapter` faz a ingestão de instâncias `ImageData` no formato RGBA8.
 
 ### Ciclo de vida
 
