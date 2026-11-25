@@ -460,7 +460,7 @@ If you like this project and want to support its development:
 
 | Pix QR Code | Copy-and-Paste / Random Key |
 | :---: | :--- |
-| ![Pix QR Code](https://raw.githubusercontent.com/AugustoVasques75/balloc/main/img/pix.png) | **Random Key:**<br>`e87d773a-0b97-4410-8fc3-f7ec04cce6a2` |
+| ![Pix QR Code](https://raw.githubusercontent.com/AugustoVasques75/balloc/main/packages/balloc/img/pix.png) | **Random Key:**<br>`e87d773a-0b97-4410-8fc3-f7ec04cce6a2` |
 
 ## License
 
