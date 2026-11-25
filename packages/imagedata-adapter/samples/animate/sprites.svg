@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="64" viewBox="0 0 256 64">
+  <defs>
+    <g id="body">
+      <rect x="20" y="9" width="24" height="25" rx="5" fill="#72c7ff"/>
+      <rect x="24" y="14" width="6" height="6" rx="2" fill="#142536"/>
+      <rect x="34" y="14" width="6" height="6" rx="2" fill="#142536"/>
+      <path d="M27 27h10" stroke="#142536" stroke-width="2" stroke-linecap="round"/>
+      <rect x="16" y="36" width="32" height="15" rx="4" fill="#f4b860"/>
+      <rect x="11" y="37" width="7" height="13" rx="3" fill="#72c7ff"/>
+      <rect x="46" y="37" width="7" height="13" rx="3" fill="#72c7ff"/>
+    </g>
+  </defs>
+  <g transform="translate(0 0)">
+    <use href="#body"/>
+    <path d="M25 50l-4 9h8l3-9m4 0l3 9h8l-5-9" fill="#e8edf2" stroke="#e8edf2" stroke-linejoin="round"/>
+  </g>
+  <g transform="translate(64 0)">
+    <use href="#body"/>
+    <path d="M25 50l-9 7h9l7-7m4 0l7 7h9l-11-7" fill="#e8edf2" stroke="#e8edf2" stroke-linejoin="round"/>
+  </g>
+  <g transform="translate(128 0)">
+    <use href="#body"/>
+    <path d="M25 50l-4 9h8l3-9m4 0l3 9h8l-5-9" fill="#e8edf2" stroke="#e8edf2" stroke-linejoin="round" transform="translate(2 0)"/>
+  </g>
+  <g transform="translate(192 0)">
+    <use href="#body"/>
+    <path d="M25 50l-9 7h9l7-7m4 0l7 7h9l-11-7" fill="#e8edf2" stroke="#e8edf2" stroke-linejoin="round" transform="translate(-2 0)"/>
+  </g>
+</svg>
