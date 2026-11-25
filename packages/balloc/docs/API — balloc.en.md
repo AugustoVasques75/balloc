@@ -31,6 +31,9 @@ Balloc
 │   ├── free()
 │   └── gc()
 │
+├── Data Ingestion
+│   └── loadData()
+│
 ├── Linear Structures
 │   ├── Stack
 │   │   ├── push()
@@ -436,6 +439,57 @@ memory.gc();
 ```
 
 `gc()` does not alter handlers, as headers remain at the same addresses; only data regions are compacted.
+
+---
+
+## `loadData(adapter)`
+
+Delegates synchronous data ingestion to a format-specific adapter. The adapter receives the current `Balloc` instance, uses its public API to allocate and populate blocks, and returns the numeric handler identifying the primary block.
+
+Balloc does not interpret the input format or manage adapter transactions. The adapter is responsible for data parsing, block organization, and rollback of any allocations it makes if ingestion fails. Exceptions thrown by the adapter propagate through `loadData()` unchanged.
+
+### Adapter contract
+
+```ts
+interface FormatAdapter {
+    load(allocator: Balloc): number;
+}
+```
+
+The `load()` method must complete synchronously and return a valid block handler. Returning a `Promise` does not make ingestion asynchronous; `loadData()` does not await or resolve it.
+
+### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `adapter` | `FormatAdapter` | Adapter implementing `load(allocator)`. |
+
+### Return
+
+```text
+number
+```
+
+The handler returned by the adapter, identifying the primary block loaded.
+
+### Exceptions
+
+* `TypeError` — `adapter` is missing or does not provide a callable `load()` method.
+* Any exception thrown by the adapter's `load()` method is propagated unchanged.
+
+### Example
+
+```js
+const handler = memory.loadData({
+    load(allocator) {
+        const handler = allocator.alloc(4);
+        allocator.put(handler, new Uint8Array([255, 0, 0, 255]));
+        return handler;
+    }
+});
+```
+
+Format-specific adapters can be distributed as independent packages. For example, `imagedata-adapter` loads RGBA8 `ImageData` instances into a `Balloc` allocator.
 
 ---
 
@@ -1356,6 +1410,7 @@ Generation participates in cookie validation. Consequently, an invalid handler o
 | Lifecycle | `shrink()` | `void`|
 | Lifecycle | `free()` | `void`|
 | Lifecycle | `gc()` | `void`|
+| Data ingestion | `loadData()` | `number`|
 | Stack | `push()` | `boolean`|
 | Stack | `pop()` | `number \| undefined` |
 | Stack | `peek()` | `number \| undefined` |
