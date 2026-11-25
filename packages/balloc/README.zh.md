@@ -431,7 +431,7 @@ const handler = allocator.loadData({
 
 | Pix 二维码 | 复制粘贴密钥／随机密钥 |
 | :---: | :--- |
-| ![Pix QR Code](https://raw.githubusercontent.com/AugustoVasques75/balloc/main/img/pix.png) | **随机密钥：**<br>`e87d773a-0b97-4410-8fc3-f7ec04cce6a2` |
+| ![Pix QR Code](https://raw.githubusercontent.com/AugustoVasques75/balloc/main/packages/balloc/img/pix.png) | **随机密钥：**<br>`e87d773a-0b97-4410-8fc3-f7ec04cce6a2` |
 
 ## 许可证
 
