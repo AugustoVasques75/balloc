@@ -1,14 +1,14 @@
 /**
- * Adapta uma instância ImageData para ingestão síncrona pelo Balloc.
+ * Adapts an ImageData instance for synchronous ingestion by Balloc.
  *
- * A implementação inicial suporta exclusivamente rgba8unorm em buckets 8u.
- * O recorte é opcional e usa coordenadas e dimensões em pixels.
+ * The initial implementation supports only rgba8unorm data with 8u buckets.
+ * Cropping is optional and uses pixel coordinates and dimensions.
  */
 export class ImageDataAdapter {
     /**
-     * @param {ImageData} imageData - Fonte de pixels já decodificada.
+     * @param {ImageData} imageData - Decoded pixel source.
      * @param {{x?: number, y?: number, width?: number, height?: number}} [region]
-     * Região a extrair. Por padrão, utiliza a imagem inteira.
+     * Region to extract. Defaults to the entire image.
      */
     constructor(imageData, region = {}) {
         if (!imageData || !Number.isSafeInteger(imageData.width) || imageData.width < 1 ||
@@ -31,12 +31,12 @@ export class ImageDataAdapter {
     }
 
     /**
-     * Copia os pixels para um bloco Balloc e retorna seu handler.
+     * Copies the pixels into a Balloc block and returns its handler.
      *
-     * @param {import("balloc").default} allocator - Instância do Balloc.
-     * @returns {number} Handler do bloco com os canais RGBA em sequência.
-     * @throws {TypeError} Se allocator não for compatível com buckets 8u.
-     * @throws {Error} Se a alocação ou a ingestão falhar.
+     * @param {import("balloc").default} allocator - Balloc instance.
+     * @returns {number} Handler for the block containing the sequential RGBA channels.
+     * @throws {TypeError} If the allocator is not configured with 8u buckets.
+     * @throws {Error} If allocation or ingestion fails.
      */
     load(allocator) {
         if (!allocator || allocator.bucketType !== "Uint8") {
