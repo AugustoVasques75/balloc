@@ -432,7 +432,7 @@ const handler = allocator.loadData({
 
 | رمز QR لخدمة Pix | مفتاح النسخ واللصق / المفتاح العشوائي |
 | :---: | :--- |
-| ![رمز QR لخدمة Pix](https://raw.githubusercontent.com/AugustoVasques75/balloc/main/img/pix.png) | **المفتاح العشوائي:**<br>`e87d773a-0b97-4410-8fc3-f7ec04cce6a2` |
+| ![رمز QR لخدمة Pix](https://raw.githubusercontent.com/AugustoVasques75/balloc/main/packages/balloc/img/pix.png) | **المفتاح العشوائي:**<br>`e87d773a-0b97-4410-8fc3-f7ec04cce6a2` |
 
 ## الترخيص
 
